@@ -1,0 +1,38 @@
+/* Allow overflow for half-visible slides */
+.premium-hero-swiper {
+  overflow: visible;
+}
+
+/* Hide ALL slides by default */
+.premium-hero-swiper .swiper-slide {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.7);
+  transition: transform 0.6s ease, opacity 0.6s ease;
+}
+
+/* Show ONLY center + left + right */
+.premium-hero-swiper .swiper-slide-active,
+.premium-hero-swiper .swiper-slide-prev,
+.premium-hero-swiper .swiper-slide-next {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Center slide (main focus) */
+.premium-hero-swiper .swiper-slide-active {
+  transform: scale(1.15);
+  z-index: 10;
+}
+
+/* Side slides */
+.premium-hero-swiper .swiper-slide-prev,
+.premium-hero-swiper .swiper-slide-next {
+  transform: scale(0.95);
+  opacity: 0.7;
+}
+
+/* Product image – no box/shadow */
+.product-img {
+  transition: transform 0.6s ease;
+}
