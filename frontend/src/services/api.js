@@ -1,22 +1,49 @@
-// API service for backend communication
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+
+const request = async (path, options = {}) => {
+    const response = await fetch(`${API_BASE}${path}`, options);
+    const data = await response.json();
+
+    if (!response.ok) {
+        const message = data?.message || data?.error || "API request failed";
+        throw new Error(message);
+    }
+
+    return data;
+};
 
 export const api = {
-    // Products
-    getAllProducts: () => fetch(`${API_BASE}/products/all`).then(res => res.json()),
-    getProductById: (id) => fetch(`${API_BASE}/products/${id}`).then(res => res.json()),
-    getProductsByCategory: (category) => fetch(`${API_BASE}/products/category/${category}`).then(res => res.json()),
-    searchProducts: (query) => fetch(`${API_BASE}/products/search?q=${query}`).then(res => res.json()),
+    getAllProducts: () => request("/products/all"),
+    getProductById: (id) => request(`/products/${id}`),
+    getProductsByCategory: (category) =>
+        request(`/products/category/${encodeURIComponent(category)}`),
+    searchProducts: (query) =>
+        request(`/products/search?q=${encodeURIComponent(query)}`),
 
-    // Orders
-    createOrder: (orderData) => fetch(`${API_BASE}/orders/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(orderData)
-    }).then(res => res.json()),
+    createOrder: (orderData) =>
+        request("/orders/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(orderData),
+        }),
+    createPaymentOrder: (orderData) =>
+        request("/orders/payment/create-order", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(orderData),
+        }),
+    verifyPaymentAndCreateOrder: (paymentData) =>
+        request("/orders/payment/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(paymentData),
+        }),
 
-    getUserOrders: () => fetch(`${API_BASE}/orders/my-orders`, {
-        credentials: 'include'
-    }).then(res => res.json())
+    getUserOrders: () =>
+        request("/orders/my-orders", {
+            credentials: "include",
+        }),
 };

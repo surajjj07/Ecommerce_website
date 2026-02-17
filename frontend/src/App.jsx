@@ -21,7 +21,7 @@ const Home = () => (
 
 const App = () => {
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex min-h-screen flex-col bg-gradient-to-br from-[#070B1A] via-[#0B1226] to-[#0F1A2E]">
       <Navbar />
 
       {/* Main content grows to fill space */}

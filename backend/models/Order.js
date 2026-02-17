@@ -67,6 +67,19 @@ const orderSchema = new mongoose.Schema(
             default: "pending",
             index: true,
         },
+        paymentId: {
+            type: String,
+            default: null,
+        },
+        paymentGatewayOrderId: {
+            type: String,
+            default: null,
+            index: true,
+        },
+        paymentSignature: {
+            type: String,
+            default: null,
+        },
 
         shippingAddress: {
             type: String,

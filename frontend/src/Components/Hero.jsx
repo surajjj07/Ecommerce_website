@@ -1,5 +1,6 @@
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Autoplay } from "swiper/modules";
+import { ArrowRight, BadgeCheck, ShieldCheck, Truck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import "swiper/css";
@@ -17,88 +18,84 @@ const Hero = () => {
     const navigate = useNavigate();
 
     return (
-        <section className="relative overflow-hidden bg-gradient-to-b from-gray-50 to-white">
+        <section className="relative overflow-hidden bg-transparent text-white">
+            <div className="pointer-events-none absolute -left-20 top-0 h-72 w-72 rounded-full bg-amber-400/20 blur-3xl" />
+            <div className="pointer-events-none absolute -right-10 bottom-0 h-96 w-96 rounded-full bg-cyan-500/20 blur-3xl" />
 
-            {/* Background accents (same as before) */}
-            <div className="absolute -top-24 -right-24 w-96 h-96 bg-indigo-300/40 rounded-full blur-3xl" />
-            <div className="absolute top-40 -left-24 w-96 h-96 bg-pink-300/30 rounded-full blur-3xl" />
+            <div className="relative mx-auto grid max-w-7xl grid-cols-1 gap-10 px-6 pb-16 pt-16 md:grid-cols-2 md:items-center md:gap-14 md:py-24">
+                <div>
+                    <span className="inline-flex items-center rounded-full border border-amber-300/40 bg-amber-300/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-200">
+                        Spring Drop 2026
+                    </span>
 
-            <div className="relative max-w-7xl mx-auto px-6 pt-16 pb-12 md:pt-24 md:pb-20">
+                    <h1 className="mt-5 text-4xl font-black leading-tight md:text-6xl">
+                        Premium essentials,
+                        <br />
+                        <span className="text-amber-400">built for everyday luxury.</span>
+                    </h1>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-16 items-center">
+                    <p className="mt-5 max-w-xl text-base text-slate-300 md:text-lg">
+                        Discover curated products with verified quality, fast delivery,
+                        and a checkout flow you can trust.
+                    </p>
 
-                    {/* ✅ LEFT CONTENT — UNCHANGED */}
-                    <div>
-                        <span className="inline-block mb-4 px-4 py-1 rounded-full bg-indigo-100 text-indigo-600 text-sm font-semibold">
-                            New Collection 2026
-                        </span>
-
-                        <h1 className="text-4xl md:text-6xl font-extrabold leading-tight text-gray-900">
-                            Elevate Your <br />
-                            <span className="text-indigo-600">Everyday Shopping</span>
-                        </h1>
-
-                        <p className="mt-6 text-lg text-gray-600 max-w-xl">
-                            Discover premium products curated for quality, style, and value.
-                            Experience fast delivery and secure checkout.
-                        </p>
-
-                        <div className="mt-10 flex items-center gap-5">
-                            <button
-                                onClick={() => navigate("/shop")}
-                                className="px-8 py-3 rounded-full bg-indigo-600 text-white font-semibold text-sm hover:bg-indigo-700 transition"
-                            >
-                                Shop Now
-                            </button>
-
-
-                            <button className="px-8 py-3 rounded-full border border-gray-300 text-gray-800 font-semibold text-sm hover:bg-gray-100 transition">
-                                Explore Categories
-                            </button>
-                        </div>
-
-                        <div className="mt-12 flex gap-10 text-sm text-gray-500">
-                            <div>
-                                <span className="block text-lg font-bold text-gray-900">10k+</span>
-                                Happy Customers
-                            </div>
-                            <div>
-                                <span className="block text-lg font-bold text-gray-900">500+</span>
-                                Premium Products
-                            </div>
-                            <div>
-                                <span className="block text-lg font-bold text-gray-900">4.9★</span>
-                                Average Rating
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* ✅ RIGHT — PREMIUM 3-SLIDE HERO CAROUSEL */}
-                    <div className="relative h-[520px] flex items-center justify-center">
-                        <Swiper
-                            modules={[Autoplay]}
-                            slidesPerView={3}
-                            centeredSlides
-                            loop
-                            spaceBetween={-60}
-                            autoplay={{
-                                delay: 3500,
-                                disableOnInteraction: false,
-                            }}
-                            className="premium-hero-swiper w-full max-w-xl"
+                    <div className="mt-9 flex flex-wrap items-center gap-4">
+                        <button
+                            onClick={() => navigate("/shop")}
+                            className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-7 py-3 text-sm font-bold text-slate-950 transition hover:bg-amber-300"
                         >
-                            {images.map((img, index) => (
-                                <SwiperSlide key={index} className="flex justify-center">
-                                    <img
-                                        src={img}
-                                        alt="product"
-                                        className="product-img w-56 h-56 rounded-full object-cover"
-                                    />
-                                </SwiperSlide>
-                            ))}
-                        </Swiper>
+                            Shop Collection
+                            <ArrowRight className="h-4 w-4" />
+                        </button>
+
+                        <button
+                            onClick={() => navigate("/shop?category=Electronics")}
+                            className="rounded-full border border-slate-500 px-7 py-3 text-sm font-semibold text-slate-100 transition hover:border-amber-300 hover:text-amber-200"
+                        >
+                            Explore Categories
+                        </button>
                     </div>
 
+                    <div className="mt-10 grid grid-cols-1 gap-3 text-sm text-slate-300 sm:grid-cols-3">
+                        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 backdrop-blur">
+                            <BadgeCheck className="h-4 w-4 text-amber-300" />
+                            Handpicked Quality
+                        </div>
+                        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 backdrop-blur">
+                            <Truck className="h-4 w-4 text-amber-300" />
+                            Fast Dispatch
+                        </div>
+                        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 backdrop-blur">
+                            <ShieldCheck className="h-4 w-4 text-amber-300" />
+                            Secure Payments
+                        </div>
+                    </div>
+                </div>
+
+                <div className="relative flex h-[440px] items-center justify-center md:h-[520px]">
+                    <div className="absolute inset-0 rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-slate-900/70 via-slate-950/40 to-slate-900/80 backdrop-blur" />
+                    <Swiper
+                        modules={[Autoplay]}
+                        slidesPerView={3}
+                        centeredSlides
+                        loop
+                        spaceBetween={-50}
+                        autoplay={{
+                            delay: 3200,
+                            disableOnInteraction: false,
+                        }}
+                        className="premium-hero-swiper relative w-full max-w-xl"
+                    >
+                        {images.map((img, index) => (
+                            <SwiperSlide key={index} className="flex justify-center">
+                                <img
+                                    src={`${img}?auto=format&fit=crop&w=600&q=80`}
+                                    alt="premium-product"
+                                    className="product-img h-56 w-56 rounded-full border-4 border-white/30 object-cover"
+                                />
+                            </SwiperSlide>
+                        ))}
+                    </Swiper>
                 </div>
             </div>
         </section>
