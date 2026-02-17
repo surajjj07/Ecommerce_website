@@ -40,6 +40,11 @@ const Navbar = () => {
         return () => window.removeEventListener("scroll", handleScroll);
     }, []);
 
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        setSearch(params.get("search") || "");
+    }, [location.search]);
+
     const cartCount = useMemo(
         () => cart.reduce((total, item) => total + item.qty, 0),
         [cart]
@@ -48,13 +53,15 @@ const Navbar = () => {
     const handleSearchSubmit = (event) => {
         event.preventDefault();
         const query = search.trim();
+        const nextParams = new URLSearchParams(
+            location.pathname === "/shop" ? location.search : ""
+        );
 
-        if (!query) {
-            navigate("/shop");
-            return;
-        }
+        if (query) nextParams.set("search", query);
+        else nextParams.delete("search");
 
-        navigate(`/shop?search=${encodeURIComponent(query)}`);
+        const queryString = nextParams.toString();
+        navigate(`/shop${queryString ? `?${queryString}` : ""}`);
         setMobileOpen(false);
     };
 
@@ -122,29 +129,6 @@ const Navbar = () => {
                                     Shop
                                 </Link>
                             </li>
-                            <li
-                                className="relative"
-                                onMouseEnter={() => setDesktopOpen(true)}
-                                onMouseLeave={() => setDesktopOpen(false)}
-                            >
-                                <button className="flex items-center gap-1 hover:text-amber-500">
-                                    Categories <ChevronDown className="h-4 w-4" />
-                                </button>
-
-                                {desktopOpen && (
-                                    <div className="absolute left-0 top-10 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                                        {categories.map((item) => (
-                                            <button
-                                                key={item}
-                                                className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 hover:text-amber-600"
-                                                onClick={() => goToCategory(item)}
-                                            >
-                                                {item}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </li>
                             <li>
                                 <Link to="/#bestselling" className="hover:text-amber-500">
                                     Bestselling
@@ -200,7 +184,7 @@ const Navbar = () => {
                             {!loading && user && (
                                 <Link to="/profile" className="hidden sm:block">
                                     <img
-                                        src={user.avatar || "https://via.placeholder.com/80"}
+                                        src={user.profilePic || "https://via.placeholder.com/80"}
                                         alt={user.name || "Profile"}
                                         className="h-9 w-9 rounded-full border border-white/40 object-cover"
                                     />
@@ -220,7 +204,7 @@ const Navbar = () => {
                                     className="flex items-center gap-4 border-b border-slate-200 pb-4"
                                 >
                                     <img
-                                        src={user.avatar || "https://via.placeholder.com/80"}
+                                        src={user.profilePic || "https://via.placeholder.com/80"}
                                         alt={user.name || "Profile"}
                                         className="h-12 w-12 rounded-full object-cover"
                                     />

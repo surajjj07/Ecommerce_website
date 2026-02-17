@@ -3,6 +3,7 @@ import { Star, ShoppingCart } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useCart } from "../Context/CartContext";
 import { api } from "../services/api";
+import { PRODUCT_PLACEHOLDER, resolveImageUrl } from "../utils/image";
 
 const ProductDetail = () => {
     const { id } = useParams();
@@ -32,8 +33,8 @@ const ProductDetail = () => {
                         description: result.product.description,
                         images:
                             result.product.images?.length > 0
-                                ? result.product.images
-                                : ["https://via.placeholder.com/500"],
+                                ? result.product.images.map((img) => resolveImageUrl(img))
+                                : [PRODUCT_PLACEHOLDER],
                     });
                 }
             } catch (error) {
@@ -74,6 +75,10 @@ const ProductDetail = () => {
                             <img
                                 src={product.images[selectedImage]}
                                 alt={product.name}
+                                onError={(e) => {
+                                    e.currentTarget.onerror = null;
+                                    e.currentTarget.src = PRODUCT_PLACEHOLDER;
+                                }}
                                 className="w-full h-[420px] object-cover"
                             />
                         </div>
@@ -84,6 +89,10 @@ const ProductDetail = () => {
                                     key={index}
                                     src={img}
                                     alt="thumbnail"
+                                    onError={(e) => {
+                                        e.currentTarget.onerror = null;
+                                        e.currentTarget.src = PRODUCT_PLACEHOLDER;
+                                    }}
                                     onClick={() => setSelectedImage(index)}
                                     className={`w-20 h-20 object-cover rounded-xl cursor-pointer border ${selectedImage === index
                                             ? "border-indigo-600"

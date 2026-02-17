@@ -79,6 +79,9 @@ export default function AddProduct() {
       if (!form.category) {
         throw new Error("Please select a category");
       }
+      if (images.length === 0) {
+        throw new Error("Please upload at least one product image");
+      }
 
       const formData = new FormData();
 
@@ -94,7 +97,11 @@ export default function AddProduct() {
         formData.append("images", file);
       });
 
-      const res = await api.post("/products/add", formData);
+      const res = await api.post("/products/add", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
       if (!res?.success) {
         throw new Error(res?.message || "Product creation failed");

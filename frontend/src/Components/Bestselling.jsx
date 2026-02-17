@@ -157,6 +157,7 @@ import { Star, ShoppingCart } from "lucide-react";
 import { useCart } from "../Context/CartContext";
 import { useNavigate } from "react-router-dom";
 import { api } from "../services/api";
+import { PRODUCT_PLACEHOLDER, resolveImageUrl } from "../utils/image";
 
 const formatPrice = (value) => `INR ${Number(value || 0).toLocaleString("en-IN")}`;
 
@@ -166,7 +167,7 @@ const mapProduct = (product) => ({
     price: formatPrice(product.price),
     rating: 4.6,
     stock: product.stock > 0 ? "inStock" : "outOfStock",
-    image: product.images?.[0] || "https://via.placeholder.com/300",
+    image: resolveImageUrl(product.images?.[0]),
     bestseller: Boolean(product.bestseller),
 });
 
@@ -242,6 +243,10 @@ const Bestselling = () => {
                                     <img
                                         src={product.image}
                                         alt={product.name}
+                                        onError={(e) => {
+                                            e.currentTarget.onerror = null;
+                                            e.currentTarget.src = PRODUCT_PLACEHOLDER;
+                                        }}
                                         className={`h-72 w-full object-cover transition-all duration-700 ${product.stock === "outOfStock"
                                                 ? "opacity-50 grayscale"
                                                 : "group-hover:scale-110"

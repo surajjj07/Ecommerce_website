@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { useToast } from "./ToastContext";
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    const { showToast } = useToast();
 
     const API_URL = "http://localhost:5000/api/users";
 
@@ -38,7 +40,12 @@ export const AuthProvider = ({ children }) => {
         });
 
         const data = await res.json();
-        if (res.ok) setUser(data.user);
+        if (res.ok) {
+            setUser(data.user);
+            showToast("Signup successful", "success");
+        } else {
+            showToast(data?.message || "Signup failed", "error");
+        }
         return data;
     };
 
@@ -51,7 +58,12 @@ export const AuthProvider = ({ children }) => {
         });
 
         const data = await res.json();
-        if (res.ok) setUser(data.user);
+        if (res.ok) {
+            setUser(data.user);
+            showToast("Login successful", "success");
+        } else {
+            showToast(data?.message || "Login failed", "error");
+        }
         return data;
     };
 
@@ -61,6 +73,7 @@ export const AuthProvider = ({ children }) => {
             credentials: "include",
         });
         setUser(null);
+        showToast("Logged out", "info");
     };
 
     const setProfilePic = async (file) => {
@@ -74,7 +87,12 @@ export const AuthProvider = ({ children }) => {
         });
 
         const data = await res.json();
-        if (res.ok) setUser(data.user);
+        if (res.ok) {
+            setUser(data.user);
+            showToast("Profile picture updated", "success");
+        } else {
+            showToast(data?.message || "Profile update failed", "error");
+        }
         return data;
     };
 

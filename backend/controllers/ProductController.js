@@ -1,6 +1,9 @@
 import Product from '../models/Product.js';
 import cloudinary from '../config/cloudinary.js';
 
+const escapeRegex = (value = '') =>
+    String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export const addProduct = async (req, res) => {
     try {
         const ALLOWED_SIZES = new Set(['XS', 'S', 'M', 'L', 'XL', 'XXL']);
@@ -43,6 +46,9 @@ export const addProduct = async (req, res) => {
 
         if (Number.isNaN(parsedStock) || parsedStock < 0) {
             return res.status(400).json({ success: false, message: 'Valid stock is required' });
+        }
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ success: false, message: 'At least one product image is required' });
         }
 
         const normalizeSizes = (input) => {
@@ -100,22 +106,21 @@ export const addProduct = async (req, res) => {
         const featuredFlag = parseBoolean(featured);
         const bestsellerFlag = parseBoolean(bestseller);
 
-        let images = [];
-        if (req.files && req.files.length > 0) {
-            // Upload images to Cloudinary
-            const uploadPromises = req.files.map(file => {
-                return new Promise((resolve, reject) => {
-                    const stream = cloudinary.uploader.upload_stream(
-                        { folder: 'products' },
-                        (error, result) => {
-                            if (error) reject(error);
-                            else resolve(result.secure_url);
-                        }
-                    );
-                    stream.end(file.buffer);
-                });
+        const uploadPromises = req.files.map(file => {
+            return new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    { folder: 'products' },
+                    (error, result) => {
+                        if (error) reject(error);
+                        else resolve(result?.secure_url || result?.url || '');
+                    }
+                );
+                stream.end(file.buffer);
             });
-            images = await Promise.all(uploadPromises);
+        });
+        const images = (await Promise.all(uploadPromises)).filter(Boolean);
+        if (images.length === 0) {
+            return res.status(500).json({ success: false, message: 'Image upload failed. Please try again.' });
         }
 
         const product = new Product({
@@ -178,17 +183,32 @@ export const getProductById = async (req, res) => {
 
 export const searchProducts = async (req, res) => {
     try {
-        const { q } = req.query;
-        if (!q) {
-            return res.status(400).json({ message: 'Search query is required' });
+        const query = String(req.query.q || '').trim();
+        const category = String(req.query.category || '').trim();
+
+        if (!query && !category) {
+            return res.status(400).json({ message: 'Search query or category is required' });
         }
-        const products = await Product.find({
-            isActive: true,
-            $or: [
-                { name: { $regex: q, $options: 'i' } },
-                { description: { $regex: q, $options: 'i' } }
-            ]
-        });
+
+        const filter = { isActive: true };
+
+        if (category) {
+            filter.category = {
+                $regex: `^${escapeRegex(category)}$`,
+                $options: 'i'
+            };
+        }
+
+        if (query) {
+            const qRegex = { $regex: escapeRegex(query), $options: 'i' };
+            filter.$or = [
+                { name: qRegex },
+                { description: qRegex },
+                { category: qRegex }
+            ];
+        }
+
+        const products = await Product.find(filter);
         res.json({ products });
     } catch (error) {
         res.status(500).json({ message: error.message });

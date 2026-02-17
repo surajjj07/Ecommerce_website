@@ -2,16 +2,18 @@ import { Swiper, SwiperSlide } from "swiper/react";
 import { Autoplay } from "swiper/modules";
 import { ArrowRight, BadgeCheck, ShieldCheck, Truck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import Hero1 from '../assets/Hero1.jpeg'
+import Hero2 from '../assets/Hero2.jpeg'
+import Hero3 from '../assets/Hero3.jpeg'
+import Hero4 from '../assets/Hero4.jpeg'
+import Hero5 from '../assets/Hero5.jpeg'
+import Hero6 from '../assets/Hero6.jpeg'
 
 import "swiper/css";
 import "./hero-swiper.css";
 
 const images = [
-    "https://images.unsplash.com/photo-1523275335684-37898b6baf30",
-    "https://images.unsplash.com/photo-1542291026-7eec264c27ff",
-    "https://images.unsplash.com/photo-1585386959984-a41552231693",
-    "https://images.unsplash.com/photo-1618354691373-d851c5c3a990",
-    "https://images.unsplash.com/photo-1600185365483-26d7a4cc7519",
+    Hero1,Hero2,Hero3,Hero4,Hero5,Hero6
 ];
 
 const Hero = () => {

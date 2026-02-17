@@ -1,5 +1,6 @@
 import { useContext, useReducer } from "react";
 import CartContext from "./CerateCartContext.js";
+import { useToast } from "./ToastContext";
 
 
 const cartReducer = (state, action) => {
@@ -44,13 +45,16 @@ const cartReducer = (state, action) => {
 
 export const CartProvider = ({ children }) => {
     const [cart, dispatch] = useReducer(cartReducer, []);
+    const { showToast } = useToast();
 
     const addToCart = (product) => {
         dispatch({ type: "ADD_TO_CART", payload: product });
+        showToast(`${product?.name || "Product"} added to cart`, "success");
     };
 
     const removeFromCart = (id) => {
         dispatch({ type: "REMOVE_FROM_CART", payload: id });
+        showToast("Item removed from cart", "info");
     };
 
     const increaseQty = (id) => {
@@ -63,6 +67,7 @@ export const CartProvider = ({ children }) => {
 
     const clearCart = () => {
         dispatch({ type: "CLEAR_CART" });
+        showToast("Cart cleared", "info");
     };
       
 

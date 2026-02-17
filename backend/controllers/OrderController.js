@@ -6,13 +6,17 @@ import Settings from "../models/Settings.js";
 import User from "../models/User.js";
 import { sendSMS } from "../Services/smsService.js";
 
-const razorpayInstance =
-    process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
-        ? new Razorpay({
-            key_id: process.env.RAZORPAY_KEY_ID,
-            key_secret: process.env.RAZORPAY_KEY_SECRET,
-        })
-        : null;
+const getRazorpayInstance = () => {
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keyId || !keySecret) return null;
+
+    return new Razorpay({
+        key_id: keyId,
+        key_secret: keySecret,
+    });
+};
 
 const sendOrderSMS = async ({ userId, message }) => {
     try {
@@ -130,6 +134,7 @@ export const createOrder = async (req, res) => {
 
 export const createRazorpayOrder = async (req, res) => {
     try {
+        const razorpayInstance = getRazorpayInstance();
         if (!razorpayInstance) {
             return res.status(500).json({
                 message: "Payment gateway is not configured",
@@ -165,6 +170,7 @@ export const createRazorpayOrder = async (req, res) => {
 
 export const verifyRazorpayPaymentAndCreateOrder = async (req, res) => {
     try {
+        const razorpayInstance = getRazorpayInstance();
         if (!razorpayInstance || !process.env.RAZORPAY_KEY_SECRET) {
             return res.status(500).json({
                 message: "Payment gateway is not configured",

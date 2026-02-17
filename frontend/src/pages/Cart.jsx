@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
 import { useAuth } from "../Context/AuthContext";
 import { api } from "../services/api";
+import { useToast } from "../Context/ToastContext";
 
 const RAZORPAY_CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
 
@@ -28,6 +29,7 @@ const Cart = () => {
     const { cart, increaseQty, decreaseQty, removeFromCart, clearCart } = useCart();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { showToast } = useToast();
     const [address, setAddress] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -55,6 +57,7 @@ const Cart = () => {
     const payable = Math.max(total - discount, 0);
 
     const handleOrderSuccess = () => {
+        showToast("Order placed successfully", "success");
         clearCart();
         setShowSuccess(true);
         setTimeout(() => {
@@ -64,6 +67,7 @@ const Cart = () => {
     };
 
     const handleCashOnDeliveryOrder = async () => {
+        showToast("Placing order with Cash on Delivery", "info");
         const result = await api.createOrder({
             products,
             shippingAddress: address,
@@ -79,6 +83,7 @@ const Cart = () => {
     };
 
     const handleOnlinePaymentOrder = async () => {
+        showToast("Creating secure payment order", "info");
         const razorpayOrder = await api.createPaymentOrder({
             products,
             shippingAddress: address,
@@ -88,6 +93,7 @@ const Cart = () => {
         if (!scriptLoaded) {
             throw new Error("Unable to load payment gateway. Please try again.");
         }
+        showToast("Opening Razorpay checkout", "info");
 
         return new Promise((resolve, reject) => {
             const checkout = new window.Razorpay({
@@ -106,6 +112,7 @@ const Cart = () => {
                 },
                 handler: async (response) => {
                     try {
+                        showToast("Verifying payment", "info");
                         await api.verifyPaymentAndCreateOrder({
                             products,
                             shippingAddress: address,
@@ -116,11 +123,15 @@ const Cart = () => {
                         handleOrderSuccess();
                         resolve();
                     } catch (verifyError) {
+                        showToast("Payment verification failed", "error");
                         reject(verifyError);
                     }
                 },
                 modal: {
-                    ondismiss: () => reject(new Error("Payment cancelled by user")),
+                    ondismiss: () => {
+                        showToast("Payment cancelled", "error");
+                        reject(new Error("Payment cancelled by user"));
+                    },
                 },
             });
 
@@ -130,11 +141,13 @@ const Cart = () => {
 
     const handlePlaceOrder = async () => {
         if (!user) {
+            showToast("Please login first", "error");
             navigate("/login");
             return;
         }
         if (!address.trim()) {
             setError("Please enter shipping address");
+            showToast("Shipping address is required", "error");
             return;
         }
 
@@ -148,7 +161,9 @@ const Cart = () => {
                 await handleCashOnDeliveryOrder();
             }
         } catch (err) {
-            setError(err?.message || "Failed to place order");
+            const message = err?.message || "Failed to place order";
+            setError(message);
+            showToast(message, "error");
         } finally {
             setLoading(false);
         }
@@ -159,6 +174,7 @@ const Cart = () => {
         if (!code) {
             setCouponMsg("Enter a coupon code");
             setDiscount(0);
+            showToast("Enter a coupon code", "error");
             return;
         }
 
@@ -166,6 +182,7 @@ const Cart = () => {
             const value = Math.round(total * 0.1);
             setDiscount(value);
             setCouponMsg("SAVE10 applied (10% off)");
+            showToast("Coupon SAVE10 applied", "success");
             return;
         }
 
@@ -173,11 +190,13 @@ const Cart = () => {
             const value = Math.min(200, total);
             setDiscount(value);
             setCouponMsg("FLAT200 applied (INR 200 off)");
+            showToast("Coupon FLAT200 applied", "success");
             return;
         }
 
         setDiscount(0);
         setCouponMsg("Invalid coupon code");
+        showToast("Invalid coupon code", "error");
     };
 
     if (cart.length === 0) {

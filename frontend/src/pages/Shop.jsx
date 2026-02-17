@@ -3,6 +3,7 @@ import { Star, ShoppingCart } from "lucide-react";
 import { useCart } from "../Context/CartContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../services/api";
+import { PRODUCT_PLACEHOLDER, resolveImageUrl } from "../utils/image";
 
 const categories = [
     "All",
@@ -22,7 +23,7 @@ const mapProduct = (product) => ({
     rating: 4.5,
     stock: product.stock > 0 ? "inStock" : "outOfStock",
     category: product.category,
-    image: product.images?.[0] || "https://via.placeholder.com/300",
+    image: resolveImageUrl(product.images?.[0]),
 });
 
 const Shop = () => {
@@ -46,7 +47,10 @@ const Shop = () => {
                 let result;
 
                 if (searchQuery) {
-                    result = await api.searchProducts(searchQuery);
+                    result = await api.searchProducts(
+                        searchQuery,
+                        activeCategory !== "All" ? activeCategory : ""
+                    );
                 } else if (activeCategory !== "All") {
                     result = await api.getProductsByCategory(activeCategory);
                 } else {
@@ -77,7 +81,6 @@ const Shop = () => {
             nextParams.set("category", category);
         }
 
-        nextParams.delete("search");
         setSearchParams(nextParams);
     };
 
@@ -133,6 +136,10 @@ const Shop = () => {
                                     <img
                                         src={product.image}
                                         alt={product.name}
+                                        onError={(e) => {
+                                            e.currentTarget.onerror = null;
+                                            e.currentTarget.src = PRODUCT_PLACEHOLDER;
+                                        }}
                                         className={`h-40 w-full object-cover transition ${
                                             product.stock === "outOfStock"
                                                 ? "opacity-60 grayscale"

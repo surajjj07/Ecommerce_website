@@ -17,8 +17,12 @@ export const api = {
     getProductById: (id) => request(`/products/${id}`),
     getProductsByCategory: (category) =>
         request(`/products/category/${encodeURIComponent(category)}`),
-    searchProducts: (query) =>
-        request(`/products/search?q=${encodeURIComponent(query)}`),
+    searchProducts: (query, category) => {
+        const params = new URLSearchParams();
+        if (query?.trim()) params.set("q", query.trim());
+        if (category?.trim()) params.set("category", category.trim());
+        return request(`/products/search?${params.toString()}`);
+    },
 
     createOrder: (orderData) =>
         request("/orders/create", {
