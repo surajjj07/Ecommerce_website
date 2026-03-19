@@ -4,7 +4,18 @@ import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import Settings from "../models/Settings.js";
 import User from "../models/User.js";
-import { sendSMS } from "../Services/smsService.js";
+import {
+    calculateCouponDiscount,
+    incrementCouponUsage,
+} from "../Services/couponService.js";
+import {
+    notifyOrderDelivered,
+    notifyOrderPlaced,
+} from "../Services/notificationService.js";
+import {
+    createShiprocketShipment,
+    trackShiprocketShipment,
+} from "../Services/shippingService.js";
 
 const getRazorpayInstance = () => {
     const keyId = process.env.RAZORPAY_KEY_ID;
@@ -18,20 +29,18 @@ const getRazorpayInstance = () => {
     });
 };
 
-const sendOrderSMS = async ({ userId, message }) => {
+const sendDeliveredNotifications = async ({ order, settings }) => {
     try {
-        const settings = await Settings.getSingleton();
-        if (!settings.orderSmsNotify) return;
+        if (!order) return;
 
-        const user = await User.findById(userId);
-        if (!user || !user.phone) return;
+        const userId = order.user?._id || order.user;
+        const user = userId
+            ? await User.findById(userId).select("name email")
+            : null;
 
-        await sendSMS({
-            to: user.phone,
-            body: message,
-        });
+        await notifyOrderDelivered({ order, user, settings });
     } catch (error) {
-        console.error("SMS failed:", error.message);
+        console.error("Delivered notification failed:", error.message);
     }
 };
 
@@ -42,6 +51,7 @@ const validateAndBuildOrderItems = async (incomingItems) => {
 
     let totalAmount = 0;
     const orderProducts = [];
+    let ownerAdminId = null;
 
     for (const item of incomingItems) {
         const product = await Product.findById(item.product);
@@ -54,6 +64,17 @@ const validateAndBuildOrderItems = async (incomingItems) => {
             throw new Error(`Insufficient stock for ${product.name}`);
         }
 
+        if (!product.admin) {
+            throw new Error(`Product ${product.name} is not mapped to a store admin`);
+        }
+
+        const currentProductAdminId = product.admin.toString();
+        if (!ownerAdminId) {
+            ownerAdminId = currentProductAdminId;
+        } else if (ownerAdminId !== currentProductAdminId) {
+            throw new Error("You can only place one store admin's products in a single order");
+        }
+
         orderProducts.push({
             product: item.product,
             quantity: item.quantity,
@@ -63,14 +84,63 @@ const validateAndBuildOrderItems = async (incomingItems) => {
         totalAmount += product.price * item.quantity;
     }
 
-    return { orderProducts, totalAmount };
+    return { orderProducts, totalAmount, ownerAdminId };
+};
+
+const decrementStockForOrder = async (order) => {
+    const adjustedProducts = [];
+
+    try {
+        for (const item of order.items || []) {
+            const productId = item.product?._id || item.product;
+            const qty = Number(item.quantity || 0);
+            if (!productId || qty <= 0) continue;
+
+            const updated = await Product.findOneAndUpdate(
+                { _id: productId, stock: { $gte: qty } },
+                { $inc: { stock: -qty } },
+                { new: true }
+            );
+
+            if (!updated) {
+                throw new Error("Insufficient stock while accepting order");
+            }
+
+            adjustedProducts.push({ productId, qty });
+        }
+    } catch (error) {
+        if (adjustedProducts.length > 0) {
+            await Promise.all(
+                adjustedProducts.map(({ productId, qty }) =>
+                    Product.findByIdAndUpdate(productId, { $inc: { stock: qty } })
+                )
+            );
+        }
+        throw error;
+    }
+};
+
+const restoreStockForOrder = async (order) => {
+    const updates = (order.items || []).map((item) => {
+        const productId = item.product?._id || item.product;
+        const qty = Number(item.quantity || 0);
+        if (!productId || qty <= 0) return null;
+        return Product.findByIdAndUpdate(productId, { $inc: { stock: qty } });
+    });
+
+    await Promise.all(updates.filter(Boolean));
 };
 
 const createOrderDocument = async ({
     userId,
+    adminId,
     orderProducts,
     totalAmount,
+    subtotalAmount = totalAmount,
+    discountAmount = 0,
+    couponCode = "",
     shippingAddress,
+    shippingDetails = null,
     paymentMethod = "cod",
     paymentStatus = "pending",
     paymentId = null,
@@ -82,9 +152,14 @@ const createOrderDocument = async ({
     const order = new Order({
         orderId,
         user: userId,
+        admin: adminId,
         items: orderProducts,
         totalAmount,
+        subtotalAmount,
+        discountAmount,
+        couponCode,
         shippingAddress,
+        shippingDetails,
         paymentMethod,
         paymentStatus,
         paymentId,
@@ -96,36 +171,133 @@ const createOrderDocument = async ({
     return order;
 };
 
+const normalizeShippingInput = ({ shippingAddress, user }) => {
+    if (typeof shippingAddress === "string") {
+        const textAddress = shippingAddress.trim();
+        if (!textAddress) {
+            throw new Error("Shipping address is required");
+        }
+
+        return {
+            shippingAddress: textAddress,
+            shippingDetails: {
+                name: user?.name || "",
+                phone: "",
+                addressLine1: textAddress,
+                addressLine2: "",
+                city: "",
+                state: "",
+                pincode: "",
+                country: "India",
+                email: user?.email || "",
+            },
+        };
+    }
+
+    if (shippingAddress && typeof shippingAddress === "object") {
+        const details = {
+            name: String(shippingAddress.name || user?.name || "").trim(),
+            phone: String(shippingAddress.phone || "").trim(),
+            addressLine1: String(shippingAddress.addressLine1 || "").trim(),
+            addressLine2: String(shippingAddress.addressLine2 || "").trim(),
+            city: String(shippingAddress.city || "").trim(),
+            state: String(shippingAddress.state || "").trim(),
+            pincode: String(shippingAddress.pincode || "").trim(),
+            country: String(shippingAddress.country || "India").trim(),
+            email: String(shippingAddress.email || user?.email || "").trim(),
+        };
+
+        if (!details.addressLine1 || !details.city || !details.state || !details.pincode) {
+            throw new Error("Shipping address fields are incomplete");
+        }
+
+        const shippingAddressText = [
+            details.addressLine1,
+            details.addressLine2,
+            details.city,
+            details.state,
+            details.pincode,
+            details.country,
+        ]
+            .filter(Boolean)
+            .join(", ");
+
+        return { shippingAddress: shippingAddressText, shippingDetails: details };
+    }
+
+    throw new Error("Shipping address is required");
+};
+
 export const createOrder = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { products, items, shippingAddress, paymentMethod = "cod" } = req.body;
+        const {
+            products,
+            items,
+            shippingAddress,
+            paymentMethod = "cod",
+            couponCode = "",
+        } = req.body;
         const incomingItems = products ?? items;
-
-        if (!shippingAddress?.trim()) {
-            return res.status(400).json({ message: "Shipping address is required" });
-        }
+        const user = await User.findById(userId).select("name email phone");
+        const normalizedShipping = normalizeShippingInput({
+            shippingAddress,
+            user,
+        });
 
         const normalizedPaymentMethod = paymentMethod === "online" ? "online" : "cod";
-        const { orderProducts, totalAmount } = await validateAndBuildOrderItems(incomingItems);
+        const { orderProducts, totalAmount, ownerAdminId } =
+            await validateAndBuildOrderItems(incomingItems);
+        const { discountAmount, couponCode: appliedCouponCode, appliedCoupon, reason } =
+            await calculateCouponDiscount({
+                adminId: ownerAdminId,
+                subtotalAmount: totalAmount,
+                couponCode,
+            });
+        if (couponCode && !appliedCouponCode) {
+            return res.status(400).json({ message: reason || "Invalid coupon code" });
+        }
+        const settings = await Settings.getForAdmin(ownerAdminId);
+
+        if (normalizedPaymentMethod === "cod" && settings.codEnabled === false) {
+            return res.status(400).json({ message: "Cash on Delivery is currently disabled for this store" });
+        }
+        if (normalizedPaymentMethod === "online" && settings.onlinePaymentEnabled === false) {
+            return res.status(400).json({ message: "Online payment is currently disabled for this store" });
+        }
 
         const order = await createOrderDocument({
             userId,
+            adminId: ownerAdminId,
             orderProducts,
-            totalAmount,
-            shippingAddress,
+            totalAmount: Math.max(totalAmount - discountAmount, 0),
+            subtotalAmount: totalAmount,
+            discountAmount,
+            couponCode: appliedCouponCode,
+            shippingAddress: normalizedShipping.shippingAddress,
+            shippingDetails: normalizedShipping.shippingDetails,
             paymentMethod: normalizedPaymentMethod,
             paymentStatus: normalizedPaymentMethod === "cod" ? "pending" : "paid",
         });
+        if (appliedCoupon?._id) {
+            await incrementCouponUsage(appliedCoupon._id);
+        }
 
-        sendOrderSMS({
-            userId,
-            message: `Order placed successfully. Total amount INR ${totalAmount}.`,
-        });
+        if (user) {
+            notifyOrderPlaced({ order, user, settings }).catch((error) => {
+                console.error("Order notification failed:", error.message);
+            });
+        }
 
         res.status(201).json({
             message: "Order created successfully",
             order,
+            pricing: {
+                subtotalAmount: totalAmount,
+                discountAmount,
+                totalAmount: order.totalAmount,
+                coupon: appliedCoupon,
+            },
         });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -141,15 +313,28 @@ export const createRazorpayOrder = async (req, res) => {
             });
         }
 
-        const { products, items, shippingAddress } = req.body;
+        const { products, items, shippingAddress, couponCode = "" } = req.body;
         const incomingItems = products ?? items;
 
-        if (!shippingAddress?.trim()) {
-            return res.status(400).json({ message: "Shipping address is required" });
-        }
+        normalizeShippingInput({ shippingAddress, user: null });
 
-        const { totalAmount } = await validateAndBuildOrderItems(incomingItems);
-        const amountInPaise = Math.round(totalAmount * 100);
+        const { totalAmount, ownerAdminId } = await validateAndBuildOrderItems(incomingItems);
+        const { discountAmount, couponCode: appliedCouponCode, appliedCoupon, reason } =
+            await calculateCouponDiscount({
+                adminId: ownerAdminId,
+                subtotalAmount: totalAmount,
+                couponCode,
+            });
+        if (couponCode && !appliedCouponCode) {
+            return res.status(400).json({ message: reason || "Invalid coupon code" });
+        }
+        const settings = await Settings.getForAdmin(ownerAdminId);
+
+        if (settings.onlinePaymentEnabled === false) {
+            return res.status(400).json({ message: "Online payment is currently disabled for this store" });
+        }
+        const finalAmount = Math.max(totalAmount - discountAmount, 0);
+        const amountInPaise = Math.round(finalAmount * 100);
 
         const razorpayOrder = await razorpayInstance.orders.create({
             amount: amountInPaise,
@@ -162,6 +347,12 @@ export const createRazorpayOrder = async (req, res) => {
             orderId: razorpayOrder.id,
             amount: razorpayOrder.amount,
             currency: razorpayOrder.currency,
+            pricing: {
+                subtotalAmount: totalAmount,
+                discountAmount,
+                totalAmount: finalAmount,
+                coupon: appliedCouponCode ? appliedCoupon : null,
+            },
         });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -182,21 +373,38 @@ export const verifyRazorpayPaymentAndCreateOrder = async (req, res) => {
             products,
             items,
             shippingAddress,
+            couponCode = "",
             razorpayOrderId,
             razorpayPaymentId,
             razorpaySignature,
         } = req.body;
 
-        if (!shippingAddress?.trim()) {
-            return res.status(400).json({ message: "Shipping address is required" });
-        }
-
+        const user = await User.findById(userId).select("name email phone");
+        const normalizedShipping = normalizeShippingInput({
+            shippingAddress,
+            user,
+        });
         if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
             return res.status(400).json({ message: "Payment details are required" });
         }
 
         const incomingItems = products ?? items;
-        const { orderProducts, totalAmount } = await validateAndBuildOrderItems(incomingItems);
+        const { orderProducts, totalAmount, ownerAdminId } =
+            await validateAndBuildOrderItems(incomingItems);
+        const { discountAmount, couponCode: appliedCouponCode, appliedCoupon, reason } =
+            await calculateCouponDiscount({
+                adminId: ownerAdminId,
+                subtotalAmount: totalAmount,
+                couponCode,
+            });
+        if (couponCode && !appliedCouponCode) {
+            return res.status(400).json({ message: reason || "Invalid coupon code" });
+        }
+        const settings = await Settings.getForAdmin(ownerAdminId);
+
+        if (settings.onlinePaymentEnabled === false) {
+            return res.status(400).json({ message: "Online payment is currently disabled for this store" });
+        }
 
         const generatedSignature = crypto
             .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
@@ -209,27 +417,81 @@ export const verifyRazorpayPaymentAndCreateOrder = async (req, res) => {
 
         const order = await createOrderDocument({
             userId,
+            adminId: ownerAdminId,
             orderProducts,
-            totalAmount,
-            shippingAddress,
+            totalAmount: Math.max(totalAmount - discountAmount, 0),
+            subtotalAmount: totalAmount,
+            discountAmount,
+            couponCode: appliedCouponCode,
+            shippingAddress: normalizedShipping.shippingAddress,
+            shippingDetails: normalizedShipping.shippingDetails,
             paymentMethod: "online",
             paymentStatus: "paid",
             paymentId: razorpayPaymentId,
             paymentGatewayOrderId: razorpayOrderId,
             paymentSignature: razorpaySignature,
         });
+        if (appliedCoupon?._id) {
+            await incrementCouponUsage(appliedCoupon._id);
+        }
 
-        sendOrderSMS({
-            userId,
-            message: `Payment successful. Order confirmed. Total amount INR ${totalAmount}.`,
-        });
+        if (user) {
+            notifyOrderPlaced({ order, user, settings }).catch((error) => {
+                console.error("Order notification failed:", error.message);
+            });
+        }
 
         res.status(201).json({
             message: "Payment verified and order created successfully",
             order,
+            pricing: {
+                subtotalAmount: totalAmount,
+                discountAmount,
+                totalAmount: order.totalAmount,
+                coupon: appliedCoupon,
+            },
         });
     } catch (error) {
         res.status(400).json({ message: error.message });
+    }
+};
+
+export const validateCoupon = async (req, res) => {
+    try {
+        const { products, items, couponCode = "" } = req.body;
+        const incomingItems = products ?? items;
+        const { totalAmount, ownerAdminId } = await validateAndBuildOrderItems(incomingItems);
+        const { discountAmount, couponCode: appliedCouponCode, appliedCoupon, reason } =
+            await calculateCouponDiscount({
+                adminId: ownerAdminId,
+                subtotalAmount: totalAmount,
+                couponCode,
+            });
+
+        if (couponCode && !appliedCouponCode) {
+            return res.status(400).json({
+                success: false,
+                message: reason || "Invalid coupon code",
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: appliedCouponCode
+                ? `${appliedCoupon.code} applied successfully`
+                : "No coupon applied",
+            pricing: {
+                subtotalAmount: totalAmount,
+                discountAmount,
+                totalAmount: Math.max(totalAmount - discountAmount, 0),
+                coupon: appliedCoupon,
+            },
+        });
+    } catch (error) {
+        return res.status(400).json({
+            success: false,
+            message: error.message,
+        });
     }
 };
 
@@ -249,7 +511,10 @@ export const getUserOrders = async (req, res) => {
 
 export const getAllOrders = async (req, res) => {
     try {
-        const orders = await Order.find({ status: { $ne: "delivered" } })
+        const orders = await Order.find({
+            admin: req.admin._id,
+            status: { $ne: "delivered" },
+        })
             .populate("user", "name email phone")
             .populate("items.product")
             .sort({ createdAt: -1 });
@@ -262,7 +527,7 @@ export const getAllOrders = async (req, res) => {
 
 export const getCompletedOrders = async (req, res) => {
     try {
-        const orders = await Order.find({ status: "delivered" })
+        const orders = await Order.find({ admin: req.admin._id, status: "delivered" })
             .populate("user", "name email phone")
             .populate("items.product")
             .sort({ createdAt: -1 });
@@ -279,6 +544,7 @@ export const getCompletedOrdersCountLastMonth = async (req, res) => {
         oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
         const count = await Order.countDocuments({
+            admin: req.admin._id,
             status: "delivered",
             createdAt: { $gte: oneMonthAgo },
         });
@@ -297,6 +563,7 @@ export const getProfitLastMonth = async (req, res) => {
         const result = await Order.aggregate([
             {
                 $match: {
+                    admin: req.admin._id,
                     status: "delivered",
                     createdAt: { $gte: oneMonthAgo },
                 },
@@ -320,6 +587,7 @@ export const updateOrderStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
+        const settings = await Settings.getForAdmin(req.admin._id);
 
         const allowedStatuses = ["pending", "processing", "shipped", "delivered", "cancelled"];
         const transitions = {
@@ -334,7 +602,7 @@ export const updateOrderStatus = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid order status" });
         }
 
-        const order = await Order.findById(id);
+        const order = await Order.findOne({ _id: id, admin: req.admin._id });
         if (!order) {
             return res.status(404).json({ success: false, message: "Order not found" });
         }
@@ -351,18 +619,130 @@ export const updateOrderStatus = async (req, res) => {
             });
         }
 
+        const previousStatus = order.status;
+
+        if (previousStatus === "pending" && status === "processing" && !order.stockDeducted) {
+            await decrementStockForOrder(order);
+            order.stockDeducted = true;
+        }
+
+        if (status === "cancelled" && order.stockDeducted) {
+            await restoreStockForOrder(order);
+            order.stockDeducted = false;
+        }
+
         order.status = status;
         await order.save();
 
-        if (status === "shipped" || status === "delivered") {
-            sendOrderSMS({
-                userId: order.user,
-                message: `Your order status is now "${status}". Order ID: ${order._id}`,
-            });
+        if (status === "delivered") {
+            sendDeliveredNotifications({ order, settings });
         }
 
         res.json({ success: true, message: "Order status updated", order });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const createShipmentForOrder = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const settings = await Settings.getForAdmin(req.admin._id);
+        const order = await Order.findOne({ _id: id, admin: req.admin._id })
+            .populate("items.product")
+            .populate("user", "name email phone");
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        if (order.status === "cancelled" || order.status === "delivered") {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot create shipment for "${order.status}" order`,
+            });
+        }
+
+        if (order.shipment?.awbCode) {
+            return res.status(400).json({
+                success: false,
+                message: "Shipment already created for this order",
+            });
+        }
+
+        const shipment = await createShiprocketShipment({ order, settings });
+        order.shipment = shipment;
+
+        if (order.status === "pending" || order.status === "processing") {
+            order.status = "shipped";
+        }
+
+        await order.save();
+
+        res.json({
+            success: true,
+            message: "Shipment created successfully",
+            order,
+        });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+export const syncOrderShipmentTracking = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const settings = await Settings.getForAdmin(req.admin._id);
+        const order = await Order.findOne({ _id: id, admin: req.admin._id });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        if (!order.shipment?.awbCode) {
+            return res.status(400).json({
+                success: false,
+                message: "Shipment AWB not found for this order",
+            });
+        }
+
+        const tracking = await trackShiprocketShipment({
+            awbCode: order.shipment.awbCode,
+            settings,
+        });
+
+        order.shipment = {
+            ...order.shipment,
+            courierName: tracking.courierName || order.shipment.courierName,
+            trackingUrl: tracking.trackingUrl || order.shipment.trackingUrl,
+            status: tracking.status || order.shipment.status,
+            rawResponse: tracking.rawResponse,
+        };
+
+        const previousStatus = order.status;
+        const normalizedTrackingStatus = String(tracking.status || "").toLowerCase();
+        if (normalizedTrackingStatus.includes("deliver")) {
+            order.status = "delivered";
+        } else if (
+            (normalizedTrackingStatus.includes("ship") ||
+                normalizedTrackingStatus.includes("transit")) &&
+            (order.status === "pending" || order.status === "processing")
+        ) {
+            order.status = "shipped";
+        }
+
+        await order.save();
+
+        if (previousStatus !== "delivered" && order.status === "delivered") {
+            sendDeliveredNotifications({ order, settings });
+        }
+
+        res.json({
+            success: true,
+            message: "Tracking synced successfully",
+            order,
+        });
+    } catch (error) {
+        res.status(400).json({ success: false, message: error.message });
     }
 };

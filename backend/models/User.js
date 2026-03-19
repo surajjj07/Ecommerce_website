@@ -22,6 +22,22 @@ const userSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
+    phone: {
+        type: String,
+        trim: true,
+        default: ""
+    },
+    defaultAddress: {
+        name: { type: String, default: "" },
+        phone: { type: String, default: "" },
+        addressLine1: { type: String, default: "" },
+        addressLine2: { type: String, default: "" },
+        city: { type: String, default: "" },
+        state: { type: String, default: "" },
+        pincode: { type: String, default: "" },
+        country: { type: String, default: "India" },
+        email: { type: String, default: "" }
+    },
 }, {
     timestamps: true
 });

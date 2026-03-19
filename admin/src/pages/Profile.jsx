@@ -2,9 +2,11 @@ import { useContext, useMemo, useState } from "react";
 import { Camera, ShieldCheck, UserCircle2 } from "lucide-react";
 import AuthContext from "../context/CreateAuthContext";
 import { adminApi } from "../services/api";
+import { useToast } from "../context/ToastContext";
 
 export default function Profile() {
   const { admin, setAdmin } = useContext(AuthContext);
+  const { showToast } = useToast();
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -57,9 +59,9 @@ export default function Profile() {
         newPassword: "",
         confirmPassword: "",
       }));
-      alert("Profile updated successfully");
+      showToast("Profile updated successfully", "success");
     } catch (err) {
-      alert(err.message || "Failed to update profile");
+      showToast(err.message || "Failed to update profile", "error");
     } finally {
       setSaving(false);
     }
@@ -80,9 +82,9 @@ export default function Profile() {
       }
 
       setAdmin(res.admin);
-      alert("Profile picture updated");
+      showToast("Profile picture updated", "success");
     } catch (err) {
-      alert(err.message || "Failed to upload profile picture");
+      showToast(err.message || "Failed to upload profile picture", "error");
     } finally {
       setUploading(false);
       e.target.value = "";

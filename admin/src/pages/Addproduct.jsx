@@ -9,10 +9,12 @@ import {
   Boxes,
 } from "lucide-react";
 import { api } from "../services/api";
+import { useToast } from "../context/ToastContext";
 
 const AVAILABLE_SIZES = ["XS", "S", "M", "L", "XL", "XXL"];
 
 export default function AddProduct() {
+  const { showToast } = useToast();
   const [images, setImages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState([]);
@@ -38,7 +40,7 @@ export default function AddProduct() {
       const res = await api.get("/categories/all");
       setCategories(res?.categories || []);
     } catch (err) {
-      alert(err.message || "Failed to load categories");
+      showToast(err.message || "Failed to load categories", "error");
     }
   };
 
@@ -107,7 +109,7 @@ export default function AddProduct() {
         throw new Error(res?.message || "Product creation failed");
       }
 
-      alert("✅ Product added successfully");
+      showToast("Product added successfully", "success");
 
       // reset form
       setForm({
@@ -124,7 +126,7 @@ export default function AddProduct() {
       });
       setImages([]);
     } catch (err) {
-      alert(err.message || "Product creation failed");
+      showToast(err.message || "Product creation failed", "error");
     } finally {
       setLoading(false);
     }
@@ -133,7 +135,7 @@ export default function AddProduct() {
   const handleAddCategory = async () => {
     const name = categoryInput.trim();
     if (!name) {
-      alert("Please enter a category name");
+      showToast("Please enter a category name", "info");
       return;
     }
 
@@ -151,8 +153,9 @@ export default function AddProduct() {
       setCategories(nextCategories);
       setForm((prev) => ({ ...prev, category: res.category.name }));
       setCategoryInput("");
+      showToast("Category added", "success");
     } catch (err) {
-      alert(err.message || "Failed to add category");
+      showToast(err.message || "Failed to add category", "error");
     } finally {
       setAddingCategory(false);
     }

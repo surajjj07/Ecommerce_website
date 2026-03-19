@@ -221,88 +221,112 @@ const Bestselling = () => {
             <div className="pointer-events-none absolute -top-32 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-amber-500/20 blur-[120px]" />
 
             <div className="relative mx-auto max-w-7xl px-6">
-                <div className="mb-14">
-                    <h2 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">
-                        Bestselling Products
-                    </h2>
-                    <p className="mt-3 max-w-xl text-slate-300">
-                        Curated premium picks from our most loved collection.
-                    </p>
-                </div>
+                <div className="rounded-[2rem] border border-white/10 bg-white/[0.03] p-8 shadow-[0_20px_80px_-50px_rgba(15,23,42,1)] backdrop-blur-xl md:p-10">
+                    <div className="mb-14 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+                        <div>
+                            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-300">
+                                Featured Collection
+                            </span>
+                            <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-white md:text-4xl">
+                                Bestselling Products
+                            </h2>
+                            <p className="mt-3 max-w-xl text-slate-300">
+                                Curated premium picks from our most loved collection.
+                            </p>
+                        </div>
 
-                <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4">
-                    {loading
-                        ? [...Array(4)].map((_, i) => <SkeletonCard key={i} />)
-                        : showcasedProducts.map((product) => (
-                            <div
-                                key={product.id}
-                                onClick={() => navigate(`/product/${product.id}`)}
-                                className="group cursor-pointer rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur-xl transition-all duration-500 hover:-translate-y-2 hover:shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)]"
-                            >
-                                <div className="relative overflow-hidden rounded-2xl">
-                                    <img
-                                        src={product.image}
-                                        alt={product.name}
-                                        onError={(e) => {
-                                            e.currentTarget.onerror = null;
-                                            e.currentTarget.src = PRODUCT_PLACEHOLDER;
-                                        }}
-                                        className={`h-72 w-full object-cover transition-all duration-700 ${product.stock === "outOfStock"
-                                                ? "opacity-50 grayscale"
-                                                : "group-hover:scale-110"
-                                            }`}
-                                    />
+                        <div className="grid max-w-md grid-cols-2 gap-3 text-sm text-slate-300">
+                            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                                <p className="text-xl font-bold text-white">Top Rated</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                                    Loved by repeat buyers
+                                </p>
+                            </div>
+                            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                                <p className="text-xl font-bold text-white">Fresh Picks</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                                    Updated from live catalog
+                                </p>
+                            </div>
+                        </div>
+                    </div>
 
-                                    {product.stock === "outOfStock" && (
-                                        <span className="absolute left-4 top-4 rounded-full bg-red-600/90 px-3 py-1 text-xs font-semibold text-white">
-                                            Out of Stock
-                                        </span>
-                                    )}
+                    <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4">
+                        {loading
+                            ? [...Array(4)].map((_, i) => <SkeletonCard key={i} />)
+                            : showcasedProducts.map((product) => (
+                                <div
+                                    key={product.id}
+                                    onClick={() => navigate(`/product/${product.id}`)}
+                                    className="group cursor-pointer rounded-3xl border border-white/10 bg-gradient-to-b from-white/10 to-white/[0.03] p-4 backdrop-blur-xl transition-all duration-500 hover:-translate-y-2 hover:border-amber-300/20 hover:shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)]"
+                                >
+                                    <div className="relative overflow-hidden rounded-2xl">
+                                        <img
+                                            src={product.image}
+                                            alt={product.name}
+                                            onError={(e) => {
+                                                e.currentTarget.onerror = null;
+                                                e.currentTarget.src = PRODUCT_PLACEHOLDER;
+                                            }}
+                                            className={`h-72 w-full object-cover transition-all duration-700 ${product.stock === "outOfStock"
+                                                    ? "opacity-50 grayscale"
+                                                    : "group-hover:scale-110"
+                                                }`}
+                                        />
 
-                                    <button
-                                        disabled={product.stock === "outOfStock"}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            addToCart(product);
-                                        }}
-                                        className={`absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full px-5 py-2 text-sm font-semibold transition-all duration-300 ${product.stock === "outOfStock"
-                                                ? "cursor-not-allowed bg-slate-500/40 text-slate-300"
-                                                : "bg-gradient-to-r from-amber-400 to-yellow-500 text-black opacity-0 group-hover:opacity-100 hover:scale-105"
-                                            }`}
-                                    >
-                                        <span className="flex items-center gap-2">
-                                            <ShoppingCart className="h-4 w-4" />
-                                            Add to Cart
-                                        </span>
-                                    </button>
-                                </div>
+                                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-950/70 to-transparent" />
 
-                                <div className="mt-5 space-y-2">
-                                    <h3 className="text-lg font-semibold text-white">
-                                        {product.name}
-                                    </h3>
+                                        {product.stock === "outOfStock" && (
+                                            <span className="absolute left-4 top-4 rounded-full bg-red-600/90 px-3 py-1 text-xs font-semibold text-white">
+                                                Out of Stock
+                                            </span>
+                                        )}
 
-                                    <div className="flex items-center gap-1">
-                                        {[...Array(5)].map((_, i) => (
-                                            <Star
-                                                key={i}
-                                                className={`h-4 w-4 ${i < Math.floor(product.rating)
-                                                        ? "fill-amber-400 text-amber-400"
-                                                        : "text-slate-500"
-                                                    }`}
-                                            />
-                                        ))}
-                                        <span className="ml-2 text-sm text-slate-400">
-                                            {product.rating}
-                                        </span>
+                                        <button
+                                            disabled={product.stock === "outOfStock"}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                addToCart(product);
+                                            }}
+                                            className={`absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full px-5 py-2 text-sm font-semibold transition-all duration-300 ${product.stock === "outOfStock"
+                                                    ? "cursor-not-allowed bg-slate-500/40 text-slate-300"
+                                                    : "bg-gradient-to-r from-amber-400 to-yellow-500 text-black opacity-0 group-hover:opacity-100 hover:scale-105"
+                                                }`}
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <ShoppingCart className="h-4 w-4" />
+                                                Add to Cart
+                                            </span>
+                                        </button>
                                     </div>
 
-                                    <p className="text-lg font-bold text-amber-400">
-                                        {product.price}
-                                    </p>
+                                    <div className="mt-5 space-y-2">
+                                        <h3 className="text-lg font-semibold text-white">
+                                            {product.name}
+                                        </h3>
+
+                                        <div className="flex items-center gap-1">
+                                            {[...Array(5)].map((_, i) => (
+                                                <Star
+                                                    key={i}
+                                                    className={`h-4 w-4 ${i < Math.floor(product.rating)
+                                                            ? "fill-amber-400 text-amber-400"
+                                                            : "text-slate-500"
+                                                        }`}
+                                                />
+                                            ))}
+                                            <span className="ml-2 text-sm text-slate-400">
+                                                {product.rating}
+                                            </span>
+                                        </div>
+
+                                        <p className="text-lg font-bold text-amber-400">
+                                            {product.price}
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            ))}
+                    </div>
                 </div>
             </div>
         </section>

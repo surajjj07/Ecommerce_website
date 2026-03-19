@@ -1,6 +1,8 @@
-import { useContext, useReducer } from "react";
+import { useContext, useEffect, useReducer } from "react";
 import CartContext from "./CerateCartContext.js";
 import { useToast } from "./ToastContext";
+
+const CART_STORAGE_KEY = "luxecart-cart";
 
 
 const cartReducer = (state, action) => {
@@ -44,8 +46,23 @@ const cartReducer = (state, action) => {
 };
 
 export const CartProvider = ({ children }) => {
-    const [cart, dispatch] = useReducer(cartReducer, []);
+    const [cart, dispatch] = useReducer(
+        cartReducer,
+        [],
+        () => {
+            try {
+                const savedCart = window.localStorage.getItem(CART_STORAGE_KEY);
+                return savedCart ? JSON.parse(savedCart) : [];
+            } catch {
+                return [];
+            }
+        }
+    );
     const { showToast } = useToast();
+
+    useEffect(() => {
+        window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+    }, [cart]);
 
     const addToCart = (product) => {
         dispatch({ type: "ADD_TO_CART", payload: product });

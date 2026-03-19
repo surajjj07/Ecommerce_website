@@ -26,7 +26,7 @@ const Hero = () => {
 
             <div className="relative mx-auto grid max-w-7xl grid-cols-1 gap-10 px-6 pb-16 pt-16 md:grid-cols-2 md:items-center md:gap-14 md:py-24">
                 <div>
-                    <span className="inline-flex items-center rounded-full border border-amber-300/40 bg-amber-300/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-200">
+                    <span className="inline-flex items-center rounded-full border border-amber-300/40 bg-amber-300/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-200 shadow-[0_0_40px_rgba(251,191,36,0.12)]">
                         Spring Drop 2026
                     </span>
 
@@ -40,6 +40,12 @@ const Hero = () => {
                         Discover curated products with verified quality, fast delivery,
                         and a checkout flow you can trust.
                     </p>
+
+                    <div className="mt-7 flex flex-wrap gap-3 text-xs uppercase tracking-[0.22em] text-slate-400">
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2">Curated Storefront</span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2">Fast Fulfilment</span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2">Secure Checkout</span>
+                    </div>
 
                     <div className="mt-9 flex flex-wrap items-center gap-4">
                         <button
@@ -55,6 +61,13 @@ const Hero = () => {
                             className="rounded-full border border-slate-500 px-7 py-3 text-sm font-semibold text-slate-100 transition hover:border-amber-300 hover:text-amber-200"
                         >
                             Explore Categories
+                        </button>
+
+                        <button
+                            onClick={() => navigate("/orders")}
+                            className="rounded-full border border-amber-300/50 bg-white/5 px-7 py-3 text-sm font-semibold text-amber-100 transition hover:border-amber-300 hover:bg-amber-300/10"
+                        >
+                            Track Your Order
                         </button>
                     </div>
 
@@ -75,7 +88,9 @@ const Hero = () => {
                 </div>
 
                 <div className="relative flex h-[440px] items-center justify-center md:h-[520px]">
-                    <div className="absolute inset-0 rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-slate-900/70 via-slate-950/40 to-slate-900/80 backdrop-blur" />
+                    <div className="absolute inset-0 rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-slate-900/70 via-slate-950/40 to-slate-900/80 shadow-[0_30px_120px_-40px_rgba(15,23,42,0.95)] backdrop-blur" />
+                    <div className="absolute inset-x-10 top-8 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+                    <div className="absolute inset-x-16 bottom-8 h-px bg-gradient-to-r from-transparent via-amber-300/30 to-transparent" />
                     <Swiper
                         modules={[Autoplay]}
                         slidesPerView={3}

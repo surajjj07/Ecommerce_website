@@ -6,25 +6,55 @@ import {
   Store,
   Sparkles,
   CheckCircle2,
+  Truck,
 } from "lucide-react";
 import { api } from "../services/api";
+import { useToast } from "../context/ToastContext";
 
 const initialSettings = {
   storeName: "",
   storeEmail: "",
   phone: "",
+  storeAddress: "",
+  storeCity: "",
+  storeState: "",
+  storePincode: "",
+  storeCountry: "India",
+  gstNumber: "",
+  invoicePrefix: "INV",
+  defaultTaxRate: 18,
   codEnabled: true,
   onlinePaymentEnabled: true,
   orderEmailNotify: true,
-  orderSmsNotify: false,
+  shiprocket: {
+    email: "",
+    password: "",
+    pickupLocation: "Primary",
+    pickupPincode: "",
+    pickupCity: "",
+    pickupState: "",
+    pickupCountry: "India",
+    pickupAddress: "",
+    pickupPhone: "",
+    defaultWeight: 0.5,
+    defaultLength: 10,
+    defaultBreadth: 10,
+    defaultHeight: 10,
+  },
 };
 
 export default function Settings() {
+  const { showToast } = useToast();
   const [settings, setSettings] = useState(initialSettings);
   const [snapshot, setSnapshot] = useState(initialSettings);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [security, setSecurity] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmNewPassword: "",
+  });
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -34,7 +64,14 @@ export default function Settings() {
           throw new Error(res?.message || "Failed to load settings");
         }
 
-        const next = { ...initialSettings, ...(res.settings || {}) };
+        const next = {
+          ...initialSettings,
+          ...(res.settings || {}),
+          shiprocket: {
+            ...initialSettings.shiprocket,
+            ...(res.settings?.shiprocket || {}),
+          },
+        };
         setSettings(next);
         setSnapshot(next);
       } catch (err) {
@@ -57,7 +94,6 @@ export default function Settings() {
       settings.codEnabled,
       settings.onlinePaymentEnabled,
       settings.orderEmailNotify,
-      settings.orderSmsNotify,
     ];
     return flags.filter(Boolean).length;
   }, [settings]);
@@ -67,6 +103,17 @@ export default function Settings() {
     setSettings((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? checked : value,
+    }));
+  };
+
+  const handleShippingChange = (e) => {
+    const { name, value } = e.target;
+    setSettings((prev) => ({
+      ...prev,
+      shiprocket: {
+        ...prev.shiprocket,
+        [name]: value,
+      },
     }));
   };
 
@@ -81,11 +128,53 @@ export default function Settings() {
       }
 
       setSnapshot(settings);
-      alert("Settings saved successfully");
+      showToast("Settings saved successfully", "success");
     } catch (err) {
-      alert(err.message || "Failed to save settings");
+      showToast(err.message || "Failed to save settings", "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSecurityChange = (e) => {
+    const { name, value } = e.target;
+    setSecurity((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSecuritySave = async () => {
+    if (!security.currentPassword || !security.newPassword || !security.confirmNewPassword) {
+      showToast("Please fill all password fields", "info");
+      return;
+    }
+
+    if (security.newPassword.length < 6) {
+      showToast("New password must be at least 6 characters", "info");
+      return;
+    }
+
+    if (security.newPassword !== security.confirmNewPassword) {
+      showToast("New password and confirm password do not match", "error");
+      return;
+    }
+
+    try {
+      const res = await api.put("/admin/profile", {
+        currentPassword: security.currentPassword,
+        newPassword: security.newPassword,
+      });
+
+      if (!res?.success) {
+        throw new Error(res?.message || "Failed to update password");
+      }
+
+      setSecurity({
+        currentPassword: "",
+        newPassword: "",
+        confirmNewPassword: "",
+      });
+      showToast("Password updated successfully", "success");
+    } catch (err) {
+      showToast(err.message || "Failed to update password", "error");
     }
   };
 
@@ -118,8 +207,8 @@ export default function Settings() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 rounded-2xl bg-white/10 p-4 shadow-inner sm:p-5">
-            <MiniStat label="Switches On" value={`${enabledCount}/4`} />
+            <div className="grid grid-cols-2 gap-3 rounded-2xl bg-white/10 p-4 shadow-inner sm:p-5">
+            <MiniStat label="Switches On" value={`${enabledCount}/3`} />
             <MiniStat
               label="State"
               value={hasChanges ? "Unsaved" : "Synced"}
@@ -152,6 +241,31 @@ export default function Settings() {
                 onChange={handleChange}
                 placeholder="hello@urbanavenue.com"
               />
+              <Input
+                label="GST Number"
+                name="gstNumber"
+                value={settings.gstNumber}
+                onChange={handleChange}
+                placeholder="27ABCDE1234F1Z5"
+              />
+              <Input
+                label="Invoice Prefix"
+                name="invoicePrefix"
+                value={settings.invoicePrefix}
+                onChange={handleChange}
+                placeholder="INV"
+              />
+              <Input
+                label="Default GST Rate (%)"
+                name="defaultTaxRate"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={settings.defaultTaxRate}
+                onChange={handleChange}
+                placeholder="18"
+              />
             </div>
             <Input
               label="Contact Number"
@@ -159,6 +273,43 @@ export default function Settings() {
               value={settings.phone}
               onChange={handleChange}
               placeholder="+91 98765 43210"
+            />
+            <Input
+              label="Store Address"
+              name="storeAddress"
+              value={settings.storeAddress}
+              onChange={handleChange}
+              placeholder="Warehouse or billing address"
+            />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <Input
+                label="Store City"
+                name="storeCity"
+                value={settings.storeCity}
+                onChange={handleChange}
+                placeholder="Mumbai"
+              />
+              <Input
+                label="Store State"
+                name="storeState"
+                value={settings.storeState}
+                onChange={handleChange}
+                placeholder="Maharashtra"
+              />
+              <Input
+                label="Store Pincode"
+                name="storePincode"
+                value={settings.storePincode}
+                onChange={handleChange}
+                placeholder="400001"
+              />
+            </div>
+            <Input
+              label="Store Country"
+              name="storeCountry"
+              value={settings.storeCountry}
+              onChange={handleChange}
+              placeholder="India"
             />
           </Card>
 
@@ -188,22 +339,119 @@ export default function Settings() {
           <Card
             icon={<Bell size={18} />}
             title="Notifications"
-            subtitle="Choose where your order alerts are delivered."
+            subtitle="Email notifications are sent to customers when an order is placed and when it is delivered."
           >
             <div className="space-y-3">
               <SwitchRow
-                label="Order Email Alerts"
-                hint="Send email updates for newly placed orders."
+                label="Customer Email Alerts"
+                hint="Send email on order confirmation and again after delivery."
                 name="orderEmailNotify"
                 checked={settings.orderEmailNotify}
                 onChange={handleChange}
               />
-              <SwitchRow
-                label="Order SMS Alerts"
-                hint="Send SMS updates for newly placed orders."
-                name="orderSmsNotify"
-                checked={settings.orderSmsNotify}
-                onChange={handleChange}
+            </div>
+          </Card>
+
+          <Card
+            icon={<Truck size={18} />}
+            title="Shipping Aggregator (Shiprocket)"
+            subtitle="Each admin can configure their own pickup location and API login."
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Input
+                label="Shiprocket Email"
+                name="email"
+                type="email"
+                value={settings.shiprocket.email}
+                onChange={handleShippingChange}
+                placeholder="shipper@example.com"
+              />
+              <Input
+                label="Shiprocket Password"
+                name="password"
+                type="password"
+                value={settings.shiprocket.password}
+                onChange={handleShippingChange}
+                placeholder="********"
+              />
+              <Input
+                label="Pickup Location Name"
+                name="pickupLocation"
+                value={settings.shiprocket.pickupLocation}
+                onChange={handleShippingChange}
+                placeholder="Primary"
+              />
+              <Input
+                label="Pickup Phone"
+                name="pickupPhone"
+                value={settings.shiprocket.pickupPhone}
+                onChange={handleShippingChange}
+                placeholder="+91 98765 43210"
+              />
+              <Input
+                label="Pickup Pincode"
+                name="pickupPincode"
+                value={settings.shiprocket.pickupPincode}
+                onChange={handleShippingChange}
+                placeholder="110001"
+              />
+              <Input
+                label="Pickup City"
+                name="pickupCity"
+                value={settings.shiprocket.pickupCity}
+                onChange={handleShippingChange}
+                placeholder="New Delhi"
+              />
+              <Input
+                label="Pickup State"
+                name="pickupState"
+                value={settings.shiprocket.pickupState}
+                onChange={handleShippingChange}
+                placeholder="Delhi"
+              />
+              <Input
+                label="Pickup Country"
+                name="pickupCountry"
+                value={settings.shiprocket.pickupCountry}
+                onChange={handleShippingChange}
+                placeholder="India"
+              />
+              <div className="md:col-span-2">
+                <Input
+                  label="Pickup Address"
+                  name="pickupAddress"
+                  value={settings.shiprocket.pickupAddress}
+                  onChange={handleShippingChange}
+                  placeholder="Warehouse full address"
+                />
+              </div>
+              <Input
+                label="Default Weight (kg)"
+                name="defaultWeight"
+                value={settings.shiprocket.defaultWeight}
+                onChange={handleShippingChange}
+                placeholder="0.5"
+              />
+              <Input
+                label="Default Length (cm)"
+                name="defaultLength"
+                value={settings.shiprocket.defaultLength}
+                onChange={handleShippingChange}
+                placeholder="10"
+              />
+              <Input
+                label="Default Breadth (cm)"
+                name="defaultBreadth"
+                value={settings.shiprocket.defaultBreadth}
+                onChange={handleShippingChange}
+                placeholder="10"
+              />
+              <Input
+                label="Default Height (cm)"
+                name="defaultHeight"
+                value={settings.shiprocket.defaultHeight}
+                onChange={handleShippingChange}
+                placeholder="10"
               />
             </div>
           </Card>
@@ -213,16 +461,38 @@ export default function Settings() {
           <Card
             icon={<Shield size={18} />}
             title="Security"
-            subtitle="Password controls are reserved for the next backend release."
+            subtitle="Update admin password securely."
           >
             <div className="space-y-3">
-              <Input label="Current Password" type="password" disabled />
-              <Input label="New Password" type="password" disabled />
-              <Input label="Confirm New Password" type="password" disabled />
+              <Input
+                label="Current Password"
+                type="password"
+                name="currentPassword"
+                value={security.currentPassword}
+                onChange={handleSecurityChange}
+              />
+              <Input
+                label="New Password"
+                type="password"
+                name="newPassword"
+                value={security.newPassword}
+                onChange={handleSecurityChange}
+              />
+              <Input
+                label="Confirm New Password"
+                type="password"
+                name="confirmNewPassword"
+                value={security.confirmNewPassword}
+                onChange={handleSecurityChange}
+              />
             </div>
-            <p className="text-xs text-slate-500">
-              Security update API is not wired yet. These fields are display-only.
-            </p>
+            <button
+              type="button"
+              onClick={handleSecuritySave}
+              className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+            >
+              Update Password
+            </button>
           </Card>
 
           <div className="rounded-3xl border bg-white p-5 shadow-sm">

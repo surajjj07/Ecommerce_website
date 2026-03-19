@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../services/api";
+import { useToast } from "../context/ToastContext";
 
 export default function AdminSignup() {
     const navigate = useNavigate();
+    const { showToast } = useToast();
 
     const [form, setForm] = useState({
         name: "",
@@ -21,15 +23,14 @@ export default function AdminSignup() {
         try {
             const res = await api.post("/admin/signup", form);
 
-            // axios does NOT have res.ok
-            if (!res.data?.success) {
-                throw new Error(res.data?.message || "Signup failed");
+            if (!res?.admin?.id) {
+                throw new Error(res?.message || "Signup failed");
             }
 
-            alert("Admin account created");
+            showToast("Admin account created", "success");
             navigate("/login");
         } catch (err) {
-            alert(err.response?.data?.message || err.message);
+            showToast(err.message || "Signup failed", "error");
         }
     };
 

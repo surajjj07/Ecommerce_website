@@ -5,6 +5,7 @@ import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import AddProduct from "./pages/Addproduct";
 import Order from "./pages/Order";
+import Coupons from "./pages/Coupons";
 import Setting from "./pages/Setting";
 import Profile from "./pages/Profile";
 import AdminLogin from "./pages/AdminLogin";
@@ -49,6 +50,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="add-product" element={<AddProduct />} />
         <Route path="orders" element={<Order />} />
+        <Route path="coupons" element={<Coupons />} />
         <Route path="settings" element={<Setting />} />
         <Route path="profile" element={<Profile />} />
       </Route>

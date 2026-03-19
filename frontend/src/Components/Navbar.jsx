@@ -9,15 +9,8 @@ import {
 } from "lucide-react";
 import { useCart } from "../Context/CartContext";
 import { useAuth } from "../Context/AuthContext";
+import { useCategories } from "../Context/CategoryContext";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-
-const categories = [
-    "Electronics",
-    "Fashion",
-    "Home & Kitchen",
-    "Beauty & Health",
-    "Sports & Fitness",
-];
 
 const Navbar = () => {
     const [desktopOpen, setDesktopOpen] = useState(false);
@@ -28,6 +21,7 @@ const Navbar = () => {
 
     const { cart } = useCart();
     const { user, loading } = useAuth();
+    const { categories } = useCategories();
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -72,6 +66,7 @@ const Navbar = () => {
     };
 
     const isHome = location.pathname === "/";
+    const useDarkChrome = scrolled || isHome;
 
     return (
         <nav className="sticky top-0 z-50 w-full">
@@ -84,7 +79,7 @@ const Navbar = () => {
 
             <div
                 className={`w-full border-b transition-all duration-300 ${
-                    scrolled
+                    useDarkChrome
                         ? "border-white/20 bg-slate-950/85 shadow-xl shadow-slate-900/20 backdrop-blur-xl"
                         : "border-slate-200 bg-white"
                 }`}
@@ -93,7 +88,7 @@ const Navbar = () => {
                     <div className="flex h-16 items-center justify-between gap-4">
                         <button
                             className={`md:hidden ${
-                                scrolled ? "text-slate-100" : "text-slate-900"
+                                useDarkChrome ? "text-slate-100" : "text-slate-900"
                             }`}
                             onClick={() => setMobileOpen(!mobileOpen)}
                         >
@@ -103,7 +98,7 @@ const Navbar = () => {
                         <Link
                             to="/"
                             className={`text-2xl font-black tracking-tight ${
-                                scrolled ? "text-white" : "text-slate-900"
+                                useDarkChrome ? "text-white" : "text-slate-900"
                             }`}
                         >
                             Luxe<span className="text-amber-500">Cart</span>
@@ -111,7 +106,7 @@ const Navbar = () => {
 
                         <ul
                             className={`hidden md:flex items-center gap-6 text-sm font-medium ${
-                                scrolled ? "text-slate-200" : "text-slate-700"
+                                useDarkChrome ? "text-slate-200" : "text-slate-700"
                             }`}
                         >
                             <li>
@@ -130,8 +125,8 @@ const Navbar = () => {
                                 </Link>
                             </li>
                             <li>
-                                <Link to="/#bestselling" className="hover:text-amber-500">
-                                    Bestselling
+                                <Link to="/orders" className="hover:text-amber-500">
+                                    Track Order
                                 </Link>
                             </li>
                         </ul>
@@ -148,7 +143,7 @@ const Navbar = () => {
                                     onChange={(e) => setSearch(e.target.value)}
                                     placeholder="Search premium products..."
                                     className={`w-full rounded-full border py-2 pl-10 pr-4 text-sm outline-none transition ${
-                                        scrolled
+                                        useDarkChrome
                                             ? "border-slate-700 bg-slate-900/70 text-white placeholder:text-slate-400 focus:border-amber-500"
                                             : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-amber-500"
                                     }`}
@@ -158,7 +153,7 @@ const Navbar = () => {
 
                         <div
                             className={`flex items-center gap-4 ${
-                                scrolled ? "text-slate-100" : "text-slate-900"
+                                useDarkChrome ? "text-slate-100" : "text-slate-900"
                             }`}
                         >
                             <Link to="/cart" className="relative cursor-pointer">
@@ -172,7 +167,7 @@ const Navbar = () => {
                                 <Link
                                     to="/login"
                                     className={`hidden rounded-full px-5 py-2 text-sm font-semibold sm:block ${
-                                        scrolled
+                                        useDarkChrome
                                             ? "bg-amber-500 text-slate-900 hover:bg-amber-400"
                                             : "bg-slate-900 text-white hover:bg-slate-800"
                                     }`}
@@ -242,6 +237,13 @@ const Navbar = () => {
                                     className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700"
                                 >
                                     Shop
+                                </Link>
+                                <Link
+                                    to="/orders"
+                                    onClick={() => setMobileOpen(false)}
+                                    className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700"
+                                >
+                                    Orders
                                 </Link>
                             </div>
 

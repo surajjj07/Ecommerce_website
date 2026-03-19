@@ -1,6 +1,12 @@
 import mongoose from "mongoose";
 
 const productSchema = new mongoose.Schema({
+    admin: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+        index: true,
+        required: true
+    },
     name: {
         type: String,
         required: true,

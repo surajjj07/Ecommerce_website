@@ -7,12 +7,16 @@ import {
   CreditCard,
 } from "lucide-react";
 import { api } from "../services/api";
+import { useToast } from "../context/ToastContext";
 
 export default function Orders() {
+  const { showToast } = useToast();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingOrderId, setUpdatingOrderId] = useState("");
+  const [creatingShipmentId, setCreatingShipmentId] = useState("");
+  const [syncingShipmentId, setSyncingShipmentId] = useState("");
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -50,10 +54,53 @@ export default function Orders() {
           .map((order) => (order._id === orderId ? { ...order, ...res.order } : order))
           .filter((order) => order.status !== "delivered")
       );
+      showToast(res?.message || "Order status updated", "success");
     } catch (err) {
-      alert(err.message || "Failed to update order status");
+      showToast(err.message || "Failed to update order status", "error");
     } finally {
       setUpdatingOrderId("");
+    }
+  };
+
+  const createShipment = async (orderId) => {
+    try {
+      setCreatingShipmentId(orderId);
+      const res = await api.post(`/orders/${orderId}/shipping/create`);
+
+      if (!res?.success || !res?.order) {
+        throw new Error(res?.message || "Failed to create shipment");
+      }
+
+      setOrders((prev) =>
+        prev.map((order) => (order._id === orderId ? { ...order, ...res.order } : order))
+      );
+      showToast(res?.message || "Shipment created", "success");
+    } catch (err) {
+      showToast(err.message || "Failed to create shipment", "error");
+    } finally {
+      setCreatingShipmentId("");
+    }
+  };
+
+  const syncShipment = async (orderId) => {
+    try {
+      setSyncingShipmentId(orderId);
+      const res = await api.post(`/orders/${orderId}/shipping/sync`);
+
+      if (!res?.success || !res?.order) {
+        throw new Error(res?.message || "Failed to sync tracking");
+      }
+
+      setOrders((prev) =>
+        prev
+          .map((order) => (order._id === orderId ? { ...order, ...res.order } : order))
+          .filter((order) => order.status !== "delivered")
+      );
+      showToast(res?.message || "Tracking synced", "success");
+    } catch (err) {
+      showToast(err.message || "Failed to sync tracking", "error");
+    } finally {
+      setSyncingShipmentId("");
     }
   };
 
@@ -146,6 +193,7 @@ export default function Orders() {
               <th className="px-6 py-4 text-left">Customer</th>
               <th className="px-6 py-4 text-left">Amount</th>
               <th className="px-6 py-4 text-left">Payment</th>
+              <th className="px-6 py-4 text-left">Shipment</th>
               <th className="px-6 py-4 text-right">Actions</th>
             </tr>
           </thead>
@@ -170,18 +218,52 @@ export default function Orders() {
                     <StatusPill status={order.status} />
                   </div>
                 </td>
+                <td className="px-6 py-4 text-xs text-slate-600">
+                  {order.shipment?.awbCode ? (
+                    <div className="space-y-1">
+                      <p className="font-semibold text-slate-800">AWB: {order.shipment.awbCode}</p>
+                      <p>{order.shipment.courierName || "Shiprocket"}</p>
+                      <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                        {order.shipment.status || "created"}
+                      </p>
+                      {order.shipment.trackingUrl ? (
+                        <a
+                          href={order.shipment.trackingUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-indigo-600 hover:underline"
+                        >
+                          Track Shipment
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <span className="text-amber-700">Not Created</span>
+                  )}
+                </td>
                 <td className="px-6 py-4 text-right space-x-3">
-                  {getStatusAction(order.status) ? (
+                  {getStatusAction(order) ? (
                     <button
                       onClick={() =>
-                        updateOrderStatus(order._id, getStatusAction(order.status).nextStatus)
+                        getStatusAction(order).type === "shipment"
+                          ? createShipment(order._id)
+                          : updateOrderStatus(order._id, getStatusAction(order).nextStatus)
                       }
-                      disabled={updatingOrderId === order._id}
+                      disabled={updatingOrderId === order._id || creatingShipmentId === order._id}
                       className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 disabled:opacity-60"
                     >
-                      {updatingOrderId === order._id
+                      {updatingOrderId === order._id || creatingShipmentId === order._id
                         ? "Updating..."
-                        : getStatusAction(order.status).label}
+                        : getStatusAction(order).label}
+                    </button>
+                  ) : null}
+                  {order.shipment?.awbCode ? (
+                    <button
+                      onClick={() => syncShipment(order._id)}
+                      disabled={syncingShipmentId === order._id}
+                      className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 transition hover:border-sky-300 disabled:opacity-60"
+                    >
+                      {syncingShipmentId === order._id ? "Syncing..." : "Sync Tracking"}
                     </button>
                   ) : null}
                   <button className="rounded-full border border-slate-200 p-2 text-slate-600 transition hover:border-slate-300 hover:text-slate-900">
@@ -223,23 +305,44 @@ export default function Orders() {
                 <span className="text-slate-500">Payment:</span>{" "}
                 {order.paymentMethod || "Online"}
               </p>
+              <p>
+                <span className="text-slate-500">AWB:</span>{" "}
+                {order.shipment?.awbCode || "Not Created"}
+              </p>
+              {order.shipment?.awbCode ? (
+                <p>
+                  <span className="text-slate-500">Tracking Status:</span>{" "}
+                  {order.shipment?.status || "created"}
+                </p>
+              ) : null}
               <p className="font-semibold text-slate-800">
                 {formatMoney(order.totalAmount || 0)}
               </p>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              {getStatusAction(order.status) ? (
+              {getStatusAction(order) ? (
                 <button
                   onClick={() =>
-                    updateOrderStatus(order._id, getStatusAction(order.status).nextStatus)
+                    getStatusAction(order).type === "shipment"
+                      ? createShipment(order._id)
+                      : updateOrderStatus(order._id, getStatusAction(order).nextStatus)
                   }
-                  disabled={updatingOrderId === order._id}
+                  disabled={updatingOrderId === order._id || creatingShipmentId === order._id}
                   className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 disabled:opacity-60"
                 >
-                  {updatingOrderId === order._id
+                  {updatingOrderId === order._id || creatingShipmentId === order._id
                     ? "Updating..."
-                    : getStatusAction(order.status).label}
+                    : getStatusAction(order).label}
+                </button>
+              ) : null}
+              {order.shipment?.awbCode ? (
+                <button
+                  onClick={() => syncShipment(order._id)}
+                  disabled={syncingShipmentId === order._id}
+                  className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 disabled:opacity-60"
+                >
+                  {syncingShipmentId === order._id ? "Syncing..." : "Sync Tracking"}
                 </button>
               ) : null}
               <button className="rounded-full border border-slate-200 p-2 text-slate-600">
@@ -259,17 +362,18 @@ export default function Orders() {
   );
 }
 
-function getStatusAction(status) {
-  const current = String(status || "").toLowerCase();
+function getStatusAction(order) {
+  const current = String(order?.status || "").toLowerCase();
+  const hasShipment = Boolean(order?.shipment?.awbCode);
 
   if (current === "pending") {
-    return { label: "Accept Order", nextStatus: "processing" };
+    return { type: "status", label: "Accept Order", nextStatus: "processing" };
   }
-  if (current === "processing") {
-    return { label: "Process to Customer", nextStatus: "shipped" };
+  if (current === "processing" && !hasShipment) {
+    return { type: "shipment", label: "Create Shipment" };
   }
   if (current === "shipped") {
-    return { label: "Mark Delivered", nextStatus: "delivered" };
+    return { type: "status", label: "Mark Delivered", nextStatus: "delivered" };
   }
 
   return null;

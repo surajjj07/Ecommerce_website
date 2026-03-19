@@ -5,7 +5,7 @@ import cloudinary from '../config/cloudinary.js';
 
 export const signup = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, email, password, phone = "" } = req.body;
 
         const existingUser = await User.findOne({ email });
         if (existingUser) {
@@ -14,7 +14,7 @@ export const signup = async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const user = new User({ name, email, password: hashedPassword });
+        const user = new User({ name, email, password: hashedPassword, phone });
         await user.save();
 
         const token = generateToken({ id: user._id, email: user.email });
@@ -25,7 +25,17 @@ export const signup = async (req, res) => {
             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
         });
 
-        res.status(201).json({ message: 'User created successfully', user: { id: user._id, name: user.name, email: user.email } });
+        res.status(201).json({
+            message: 'User created successfully',
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                profilePic: user.profilePic,
+                defaultAddress: user.defaultAddress,
+            },
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -53,7 +63,17 @@ export const login = async (req, res) => {
             maxAge: 7 * 24 * 60 * 60 * 1000
         });
 
-        res.json({ message: 'Login successful', user: { id: user._id, name: user.name, email: user.email, profilePic: user.profilePic } });
+        res.json({
+            message: 'Login successful',
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                profilePic: user.profilePic,
+                defaultAddress: user.defaultAddress,
+            },
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -89,7 +109,17 @@ export const setProfilePic = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        res.json({ message: 'Profile picture updated', user: { id: user._id, name: user.name, email: user.email, profilePic: user.profilePic } });
+        res.json({
+            message: 'Profile picture updated',
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                profilePic: user.profilePic,
+                defaultAddress: user.defaultAddress,
+            },
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -98,7 +128,93 @@ export const setProfilePic = async (req, res) => {
 export const getProfile = async (req, res) => {
     try {
         const user = req.user;
-        res.json({ user: { id: user._id, name: user.name, email: user.email, profilePic: user.profilePic } });
+        res.json({
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                profilePic: user.profilePic,
+                defaultAddress: user.defaultAddress,
+            },
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const updateProfile = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const {
+            name,
+            phone,
+            defaultAddress = {},
+            currentPassword,
+            newPassword,
+        } = req.body;
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        if (typeof name === "string" && name.trim()) {
+            user.name = name.trim();
+        }
+
+        if (typeof phone === "string") {
+            user.phone = phone.trim();
+        }
+
+        if (defaultAddress && typeof defaultAddress === "object") {
+            user.defaultAddress = {
+                ...user.defaultAddress?.toObject?.(),
+                ...defaultAddress,
+                email:
+                    String(defaultAddress.email || "").trim() ||
+                    user.email ||
+                    user.defaultAddress?.email ||
+                    "",
+                phone:
+                    String(defaultAddress.phone || "").trim() ||
+                    user.phone ||
+                    user.defaultAddress?.phone ||
+                    "",
+                name:
+                    String(defaultAddress.name || "").trim() ||
+                    user.name ||
+                    user.defaultAddress?.name ||
+                    "",
+            };
+        }
+
+        if (newPassword || currentPassword) {
+            if (!currentPassword || !newPassword) {
+                return res.status(400).json({ message: "Current and new password are required" });
+            }
+
+            const isMatch = await bcrypt.compare(currentPassword, user.password);
+            if (!isMatch) {
+                return res.status(400).json({ message: "Current password is incorrect" });
+            }
+
+            user.password = await bcrypt.hash(newPassword, 10);
+        }
+
+        await user.save();
+
+        res.json({
+            message: "Profile updated successfully",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                profilePic: user.profilePic,
+                defaultAddress: user.defaultAddress,
+            },
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

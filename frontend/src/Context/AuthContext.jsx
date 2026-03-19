@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useToast } from "./ToastContext";
+import { api } from "../services/api";
 
 const AuthContext = createContext(null);
 
@@ -8,7 +9,7 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const { showToast } = useToast();
 
-    const API_URL = "http://localhost:5000/api/users";
+    const API_URL = `${import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"}/users`;
 
     const fetchUser = async () => {
         try {
@@ -31,12 +32,12 @@ export const AuthProvider = ({ children }) => {
         fetchUser();
     }, []);
 
-    const signup = async (name, email, password) => {
+    const signup = async (name, email, password, phone = "") => {
         const res = await fetch(`${API_URL}/signup`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ name, email, password }),
+            body: JSON.stringify({ name, email, password, phone }),
         });
 
         const data = await res.json();
@@ -96,6 +97,20 @@ export const AuthProvider = ({ children }) => {
         return data;
     };
 
+    const updateProfile = async (payload) => {
+        try {
+            const data = await api.updateUserProfile(payload);
+            if (data?.user) {
+                setUser(data.user);
+                showToast(data?.message || "Profile updated", "success");
+            }
+            return data;
+        } catch (error) {
+            showToast(error.message || "Profile update failed", "error");
+            throw error;
+        }
+    };
+
     return (
         <AuthContext.Provider
             value={{
@@ -105,6 +120,7 @@ export const AuthProvider = ({ children }) => {
                 login,
                 logout,
                 setProfilePic,
+                updateProfile,
                 refetchUser: fetchUser,
             }}
         >

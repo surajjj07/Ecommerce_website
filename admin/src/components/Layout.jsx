@@ -4,6 +4,7 @@ import {
     LayoutDashboard,
     Package,
     ShoppingCart,
+    TicketPercent,
     Settings,
     UserCircle2,
     LogOut,
@@ -23,6 +24,7 @@ export default function Layout() {
         { name: "Dashboard", icon: LayoutDashboard, path: "/" },
         { name: "Add Products", icon: Package, path: "/add-product" },
         { name: "Orders", icon: ShoppingCart, path: "/orders" },
+        { name: "Coupons", icon: TicketPercent, path: "/coupons" },
         { name: "Profile", icon: UserCircle2, path: "/profile" },
         { name: "Settings", icon: Settings, path: "/settings" },
     ];

@@ -1,7 +1,7 @@
 import { Minus, Plus } from "lucide-react";
 import { useCart } from "../Context/CartContext";
 import { useNavigate } from "react-router-dom";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../Context/AuthContext";
 import { api } from "../services/api";
 import { useToast } from "../Context/ToastContext";
@@ -30,7 +30,17 @@ const Cart = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
     const { showToast } = useToast();
-    const [address, setAddress] = useState("");
+    const [shipping, setShipping] = useState({
+        name: "",
+        phone: "",
+        addressLine1: "",
+        addressLine2: "",
+        city: "",
+        state: "",
+        pincode: "",
+        country: "India",
+        email: "",
+    });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [coupon, setCoupon] = useState("");
@@ -38,6 +48,13 @@ const Cart = () => {
     const [couponMsg, setCouponMsg] = useState("");
     const [showSuccess, setShowSuccess] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState("cod");
+    const [appliedCouponCode, setAppliedCouponCode] = useState("");
+    const [pricing, setPricing] = useState({
+        subtotalAmount: 0,
+        discountAmount: 0,
+        totalAmount: 0,
+        coupon: null,
+    });
 
     const products = useMemo(
         () =>
@@ -54,7 +71,62 @@ const Cart = () => {
         [cart]
     );
 
-    const payable = Math.max(total - discount, 0);
+    const payable = pricing.totalAmount || Math.max(total - discount, 0);
+
+    useEffect(() => {
+        setShipping((prev) => ({
+            ...prev,
+            name: user?.defaultAddress?.name || user?.name || prev.name,
+            phone: user?.defaultAddress?.phone || user?.phone || prev.phone,
+            addressLine1: user?.defaultAddress?.addressLine1 || prev.addressLine1,
+            addressLine2: user?.defaultAddress?.addressLine2 || prev.addressLine2,
+            city: user?.defaultAddress?.city || prev.city,
+            state: user?.defaultAddress?.state || prev.state,
+            pincode: user?.defaultAddress?.pincode || prev.pincode,
+            country: user?.defaultAddress?.country || prev.country || "India",
+            email: user?.defaultAddress?.email || user?.email || prev.email,
+        }));
+    }, [user]);
+
+    useEffect(() => {
+        const basePricing = {
+            subtotalAmount: total,
+            discountAmount: 0,
+            totalAmount: total,
+            coupon: null,
+        };
+
+        if (!appliedCouponCode) {
+            setPricing(basePricing);
+            setDiscount(0);
+            return;
+        }
+
+        const syncCoupon = async () => {
+            try {
+                const result = await api.validateCoupon({
+                    products,
+                    couponCode: appliedCouponCode,
+                });
+                const nextPricing = result?.pricing || basePricing;
+                setPricing(nextPricing);
+                setDiscount(nextPricing.discountAmount || 0);
+                setCouponMsg(
+                    nextPricing.coupon?.description
+                        ? `${nextPricing.coupon.code} applied (${nextPricing.coupon.description})`
+                        : "Coupon applied"
+                );
+            } catch (error) {
+                setAppliedCouponCode("");
+                setPricing(basePricing);
+                setDiscount(0);
+                setCouponMsg(error.message || "Coupon no longer valid");
+                showToast(error.message || "Coupon no longer valid", "error");
+            }
+        };
+
+        syncCoupon();
+    }, [appliedCouponCode, products, showToast, total]);
 
     const handleOrderSuccess = () => {
         showToast("Order placed successfully", "success");
@@ -70,8 +142,9 @@ const Cart = () => {
         showToast("Placing order with Cash on Delivery", "info");
         const result = await api.createOrder({
             products,
-            shippingAddress: address,
+            shippingAddress: shipping,
             paymentMethod: "cod",
+            couponCode: appliedCouponCode,
         });
 
         if (result.message === "Order created successfully") {
@@ -86,7 +159,8 @@ const Cart = () => {
         showToast("Creating secure payment order", "info");
         const razorpayOrder = await api.createPaymentOrder({
             products,
-            shippingAddress: address,
+            shippingAddress: shipping,
+            couponCode: appliedCouponCode,
         });
 
         const scriptLoaded = await loadRazorpayScript();
@@ -115,7 +189,8 @@ const Cart = () => {
                         showToast("Verifying payment", "info");
                         await api.verifyPaymentAndCreateOrder({
                             products,
-                            shippingAddress: address,
+                            shippingAddress: shipping,
+                            couponCode: appliedCouponCode,
                             razorpayOrderId: response.razorpay_order_id,
                             razorpayPaymentId: response.razorpay_payment_id,
                             razorpaySignature: response.razorpay_signature,
@@ -145,8 +220,11 @@ const Cart = () => {
             navigate("/login");
             return;
         }
-        if (!address.trim()) {
-            setError("Please enter shipping address");
+        const requiredFields = ["name", "phone", "addressLine1", "city", "state", "pincode"];
+        const missing = requiredFields.find((key) => !String(shipping[key] || "").trim());
+
+        if (missing) {
+            setError("Please fill all required shipping details");
             showToast("Shipping address is required", "error");
             return;
         }
@@ -169,7 +247,7 @@ const Cart = () => {
         }
     };
 
-    const handleApplyCoupon = () => {
+    const handleApplyCoupon = async () => {
         const code = coupon.trim().toUpperCase();
         if (!code) {
             setCouponMsg("Enter a coupon code");
@@ -178,25 +256,33 @@ const Cart = () => {
             return;
         }
 
-        if (code === "SAVE10") {
-            const value = Math.round(total * 0.1);
-            setDiscount(value);
-            setCouponMsg("SAVE10 applied (10% off)");
-            showToast("Coupon SAVE10 applied", "success");
-            return;
+        try {
+            const result = await api.validateCoupon({
+                products,
+                couponCode: code,
+            });
+            const nextPricing = result?.pricing;
+            setAppliedCouponCode(nextPricing?.coupon?.code || "");
+            setPricing(nextPricing);
+            setDiscount(nextPricing?.discountAmount || 0);
+            setCouponMsg(
+                nextPricing?.coupon?.description
+                    ? `${nextPricing.coupon.code} applied (${nextPricing.coupon.description})`
+                    : "Coupon applied"
+            );
+            showToast(result?.message || "Coupon applied", "success");
+        } catch (error) {
+            setAppliedCouponCode("");
+            setDiscount(0);
+            setPricing({
+                subtotalAmount: total,
+                discountAmount: 0,
+                totalAmount: total,
+                coupon: null,
+            });
+            setCouponMsg(error.message || "Invalid coupon code");
+            showToast(error.message || "Invalid coupon code", "error");
         }
-
-        if (code === "FLAT200") {
-            const value = Math.min(200, total);
-            setDiscount(value);
-            setCouponMsg("FLAT200 applied (INR 200 off)");
-            showToast("Coupon FLAT200 applied", "success");
-            return;
-        }
-
-        setDiscount(0);
-        setCouponMsg("Invalid coupon code");
-        showToast("Invalid coupon code", "error");
     };
 
     if (cart.length === 0) {
@@ -327,13 +413,13 @@ const Cart = () => {
 
                             <div className="mb-4 flex justify-between text-gray-700">
                                 <span>Subtotal</span>
-                                <span>INR {total.toLocaleString()}</span>
+                                <span>INR {(pricing.subtotalAmount || total).toLocaleString("en-IN")}</span>
                             </div>
 
                             <div className="mb-4 flex justify-between text-gray-700">
                                 <span>Discount</span>
                                 <span className={discount > 0 ? "text-green-700" : "text-gray-500"}>
-                                    -INR {discount.toLocaleString()}
+                                    -INR {discount.toLocaleString("en-IN")}
                                 </span>
                             </div>
 
@@ -344,7 +430,7 @@ const Cart = () => {
 
                             <div className="flex justify-between border-t pt-4 text-lg font-bold">
                                 <span>Total</span>
-                                <span>INR {payable.toLocaleString()}</span>
+                                <span>INR {payable.toLocaleString("en-IN")}</span>
                             </div>
 
                             <div className="mt-6">
@@ -412,15 +498,74 @@ const Cart = () => {
 
                             <div className="mt-6">
                                 <label className="mb-2 block text-sm font-medium text-gray-700">
-                                    Shipping Address
+                                    Shipping Details
                                 </label>
-                                <textarea
-                                    value={address}
-                                    onChange={(e) => setAddress(e.target.value)}
-                                    placeholder="Enter your shipping address"
-                                    className="w-full rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                                    rows="3"
-                                />
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <input
+                                        value={shipping.name}
+                                        onChange={(e) =>
+                                            setShipping((prev) => ({ ...prev, name: e.target.value }))
+                                        }
+                                        placeholder="Full Name*"
+                                        className="rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    />
+                                    <input
+                                        value={shipping.phone}
+                                        onChange={(e) =>
+                                            setShipping((prev) => ({ ...prev, phone: e.target.value }))
+                                        }
+                                        placeholder="Phone Number*"
+                                        className="rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    />
+                                    <input
+                                        value={shipping.addressLine1}
+                                        onChange={(e) =>
+                                            setShipping((prev) => ({ ...prev, addressLine1: e.target.value }))
+                                        }
+                                        placeholder="Address Line 1*"
+                                        className="sm:col-span-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    />
+                                    <input
+                                        value={shipping.addressLine2}
+                                        onChange={(e) =>
+                                            setShipping((prev) => ({ ...prev, addressLine2: e.target.value }))
+                                        }
+                                        placeholder="Address Line 2"
+                                        className="sm:col-span-2 rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    />
+                                    <input
+                                        value={shipping.city}
+                                        onChange={(e) =>
+                                            setShipping((prev) => ({ ...prev, city: e.target.value }))
+                                        }
+                                        placeholder="City*"
+                                        className="rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    />
+                                    <input
+                                        value={shipping.state}
+                                        onChange={(e) =>
+                                            setShipping((prev) => ({ ...prev, state: e.target.value }))
+                                        }
+                                        placeholder="State*"
+                                        className="rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    />
+                                    <input
+                                        value={shipping.pincode}
+                                        onChange={(e) =>
+                                            setShipping((prev) => ({ ...prev, pincode: e.target.value }))
+                                        }
+                                        placeholder="Pincode*"
+                                        className="rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    />
+                                    <input
+                                        value={shipping.email || user?.email || ""}
+                                        onChange={(e) =>
+                                            setShipping((prev) => ({ ...prev, email: e.target.value }))
+                                        }
+                                        placeholder="Email"
+                                        className="rounded-2xl border border-gray-200 bg-white/70 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    />
+                                </div>
                             </div>
 
                             {error && (

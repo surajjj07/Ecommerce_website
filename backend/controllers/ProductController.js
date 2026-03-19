@@ -124,6 +124,7 @@ export const addProduct = async (req, res) => {
         }
 
         const product = new Product({
+            admin: req.admin._id,
             name,
             sku,
             description,

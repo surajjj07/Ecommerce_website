@@ -1,18 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Star, ShoppingCart } from "lucide-react";
 import { useCart } from "../Context/CartContext";
+import { useCategories } from "../Context/CategoryContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../services/api";
 import { PRODUCT_PLACEHOLDER, resolveImageUrl } from "../utils/image";
-
-const categories = [
-    "All",
-    "Electronics",
-    "Fashion",
-    "Home & Kitchen",
-    "Beauty & Health",
-    "Sports & Fitness",
-];
 
 const formatPrice = (value) => `INR ${Number(value || 0).toLocaleString("en-IN")}`;
 
@@ -32,6 +24,7 @@ const Shop = () => {
     const [error, setError] = useState("");
 
     const { addToCart } = useCart();
+    const { categories } = useCategories();
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
 
@@ -71,6 +64,7 @@ const Shop = () => {
     }, [activeCategory, searchQuery]);
 
     const filteredProducts = useMemo(() => products, [products]);
+    const categoryOptions = useMemo(() => ["All", ...categories], [categories]);
 
     const handleCategoryClick = (category) => {
         const nextParams = new URLSearchParams(searchParams);
@@ -99,7 +93,7 @@ const Shop = () => {
                 </div>
 
                 <div className="mb-10 flex flex-wrap gap-3">
-                    {categories.map((cat) => (
+                    {categoryOptions.map((cat) => (
                         <button
                             key={cat}
                             onClick={() => handleCategoryClick(cat)}

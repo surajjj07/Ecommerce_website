@@ -14,6 +14,7 @@ const request = async (path, options = {}) => {
 
 export const api = {
     getAllProducts: () => request("/products/all"),
+    getAllCategories: () => request("/categories/all"),
     getProductById: (id) => request(`/products/${id}`),
     getProductsByCategory: (category) =>
         request(`/products/category/${encodeURIComponent(category)}`),
@@ -30,6 +31,12 @@ export const api = {
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify(orderData),
+        }),
+    validateCoupon: (payload) =>
+        request("/orders/coupon/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
         }),
     createPaymentOrder: (orderData) =>
         request("/orders/payment/create-order", {
@@ -49,5 +56,12 @@ export const api = {
     getUserOrders: () =>
         request("/orders/my-orders", {
             credentials: "include",
+        }),
+    updateUserProfile: (payload) =>
+        request("/users/profile", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(payload),
         }),
 };

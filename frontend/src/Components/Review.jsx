@@ -71,95 +71,100 @@ const Reviews = () => {
             <div className="pointer-events-none absolute -top-24 right-10 h-80 w-80 rounded-full bg-amber-500/15 blur-[120px]" />
 
             <div className="relative mx-auto max-w-7xl px-6">
-                <div className="mx-auto mb-16 max-w-3xl text-center">
-                    <h2 className="text-3xl font-extrabold text-white md:text-4xl">
-                        Trusted by Thousands of Customers
-                    </h2>
-                    <p className="mt-4 text-slate-300">
-                        We focus on quality, speed, and customer satisfaction.
-                        Here's what our customers say about us.
-                    </p>
-
-                    <div className="mt-6 flex items-center justify-center gap-2">
-                        {[...Array(5)].map((_, i) => (
-                            <Star
-                                key={i}
-                                className="h-5 w-5 fill-amber-400 text-amber-400"
-                            />
-                        ))}
-                        <span className="ml-2 text-sm font-semibold text-slate-200">
-                            4.9 / 5 based on 10,000+ reviews
+                <div className="rounded-[2rem] border border-white/10 bg-white/[0.03] p-8 shadow-[0_20px_80px_-50px_rgba(15,23,42,1)] backdrop-blur-xl md:p-10">
+                    <div className="mx-auto mb-16 max-w-3xl text-center">
+                        <span className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-300">
+                            Why Customers Stay
                         </span>
-                    </div>
-                </div>
+                        <h2 className="mt-3 text-3xl font-extrabold text-white md:text-4xl">
+                            Trusted by Thousands of Customers
+                        </h2>
+                        <p className="mt-4 text-slate-300">
+                            We focus on quality, speed, and customer satisfaction.
+                            Here&apos;s what our customers say about us.
+                        </p>
 
-                <Swiper
-                    modules={[Autoplay]}
-                    autoplay={{
-                        delay: 3500,
-                        disableOnInteraction: false,
-                    }}
-                    loop
-                    spaceBetween={24}
-                    breakpoints={{
-                        0: { slidesPerView: 1 },
-                        768: { slidesPerView: 2 },
-                        1024: { slidesPerView: 3 },
-                    }}
-                    className="mb-16"
-                >
-                    {reviews.map((review) => (
-                        <SwiperSlide key={review.id}>
-                            <div className="h-full rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl transition-all duration-500 hover:-translate-y-2 hover:shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)]">
-                                <div className="mb-4 flex items-center gap-1">
-                                    {[...Array(5)].map((_, i) => (
-                                        <Star
-                                            key={i}
-                                            className={`h-4 w-4 ${
-                                                i < Math.floor(review.rating)
-                                                    ? "fill-amber-400 text-amber-400"
-                                                    : "text-slate-500"
-                                            }`}
-                                        />
-                                    ))}
-                                </div>
-
-                                <p className="leading-relaxed text-slate-200">
-                                    "{review.comment}"
-                                </p>
-
-                                <div className="mt-6 flex items-center gap-4">
-                                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 font-semibold text-black">
-                                        {getInitials(review.name)}
-                                    </div>
-
-                                    <div>
-                                        <p className="font-semibold text-white">
-                                            {review.name}
-                                        </p>
-                                        <p className="text-sm text-slate-400">
-                                            Verified Buyer
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </SwiperSlide>
-                    ))}
-                </Swiper>
-
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                    {qualities.map((item, index) => (
-                        <div
-                            key={index}
-                            className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center backdrop-blur"
-                        >
-                            <div className="mb-4 flex justify-center">{item.icon}</div>
-
-                            <h3 className="mb-2 font-semibold text-white">{item.title}</h3>
-
-                            <p className="text-sm text-slate-300">{item.desc}</p>
+                        <div className="mt-6 flex items-center justify-center gap-2">
+                            {[...Array(5)].map((_, i) => (
+                                <Star
+                                    key={i}
+                                    className="h-5 w-5 fill-amber-400 text-amber-400"
+                                />
+                            ))}
+                            <span className="ml-2 text-sm font-semibold text-slate-200">
+                                4.9 / 5 based on 10,000+ reviews
+                            </span>
                         </div>
-                    ))}
+                    </div>
+
+                    <Swiper
+                        modules={[Autoplay]}
+                        autoplay={{
+                            delay: 3500,
+                            disableOnInteraction: false,
+                        }}
+                        loop
+                        spaceBetween={24}
+                        breakpoints={{
+                            0: { slidesPerView: 1 },
+                            768: { slidesPerView: 2 },
+                            1024: { slidesPerView: 3 },
+                        }}
+                        className="mb-16"
+                    >
+                        {reviews.map((review) => (
+                            <SwiperSlide key={review.id}>
+                                <div className="h-full rounded-3xl border border-white/10 bg-gradient-to-b from-white/10 to-white/[0.03] p-8 backdrop-blur-xl transition-all duration-500 hover:-translate-y-2 hover:border-amber-300/20 hover:shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)]">
+                                    <div className="mb-4 flex items-center gap-1">
+                                        {[...Array(5)].map((_, i) => (
+                                            <Star
+                                                key={i}
+                                                className={`h-4 w-4 ${
+                                                    i < Math.floor(review.rating)
+                                                        ? "fill-amber-400 text-amber-400"
+                                                        : "text-slate-500"
+                                                }`}
+                                            />
+                                        ))}
+                                    </div>
+
+                                    <p className="leading-relaxed text-slate-200">
+                                        &quot;{review.comment}&quot;
+                                    </p>
+
+                                    <div className="mt-6 flex items-center gap-4">
+                                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 font-semibold text-black">
+                                            {getInitials(review.name)}
+                                        </div>
+
+                                        <div>
+                                            <p className="font-semibold text-white">
+                                                {review.name}
+                                            </p>
+                                            <p className="text-sm text-slate-400">
+                                                Verified Buyer
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </SwiperSlide>
+                        ))}
+                    </Swiper>
+
+                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                        {qualities.map((item, index) => (
+                            <div
+                                key={index}
+                                className="rounded-3xl border border-white/10 bg-gradient-to-b from-white/10 to-white/[0.03] p-8 text-center backdrop-blur"
+                            >
+                                <div className="mb-4 flex justify-center">{item.icon}</div>
+
+                                <h3 className="mb-2 font-semibold text-white">{item.title}</h3>
+
+                                <p className="text-sm text-slate-300">{item.desc}</p>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         </section>

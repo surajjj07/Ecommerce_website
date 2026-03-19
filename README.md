@@ -71,5 +71,9 @@ JWT_SECRET=your_secret_key
 CLOUDINARY_NAME= your cloudinary cloud name
 CLOUDINARY_API_KEY= your cloudinary cloud name
 CLOUDINARY_API_SECRET= your cloudinary cloud name
+RAZORPAY_KEY_ID=your_razorpay_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret
 ```
+
+Shiprocket credentials/pickup configuration are managed from `Admin -> Settings` per admin account (not from `.env`).
 

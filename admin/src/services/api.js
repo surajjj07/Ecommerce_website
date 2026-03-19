@@ -108,3 +108,20 @@ export const orderApi = {
     deleteOrder: (id) =>
         api.delete(`/orders/${id}`)
 };
+
+// ================================
+// COUPON APIs
+// ================================
+export const couponApi = {
+    getAllCoupons: () =>
+        api.get("/admin/coupons"),
+
+    createCoupon: (data) =>
+        api.post("/admin/coupons", data),
+
+    updateCoupon: (id, data) =>
+        api.put(`/admin/coupons/${id}`, data),
+
+    deleteCoupon: (id) =>
+        api.delete(`/admin/coupons/${id}`),
+};

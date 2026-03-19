@@ -2,10 +2,12 @@ import { useContext, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AuthContext from "../context/CreateAuthContext";
 import { api } from "../services/api";
+import { useToast } from "../context/ToastContext";
 
 export default function AdminLogin() {
     const navigate = useNavigate();
     const { setAdmin } = useContext(AuthContext);
+    const { showToast } = useToast();
 
     const [form, setForm] = useState({
         email: "",
@@ -24,11 +26,11 @@ export default function AdminLogin() {
 
         try {
             const response = await api.post("/admin/login", form);
-            console.log(response.admin)
-            setAdmin(response?.admin || null); // optional chaining not needed here
-            navigate("/"); // redirect to admin dashboard
+            setAdmin(response?.admin || null);
+            showToast("Login successful", "success");
+            navigate("/");
         } catch (err) {
-            alert(err.response?.data?.message || err.message);
+            showToast(err.message || "Login failed", "error");
         } finally {
             setLoading(false);
         }
