@@ -1,5 +1,6 @@
 import Product from '../models/Product.js';
 import cloudinary from '../config/cloudinary.js';
+import Supplier from '../models/Supplier.js';
 
 const escapeRegex = (value = '') =>
     String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -15,6 +16,10 @@ export const addProduct = async (req, res) => {
             discountPrice,
             category,
             brand,
+            supplier,
+            supplierSku,
+            costPrice,
+            supplierLeadTimeDays,
             stock,
             featured,
             bestseller
@@ -22,8 +27,12 @@ export const addProduct = async (req, res) => {
 
         const parsedPrice = Number(price);
         const parsedDiscountPrice = Number(discountPrice || 0);
+        const parsedCostPrice = Number(costPrice || 0);
+        const parsedSupplierLeadTimeDays = Number(supplierLeadTimeDays || 0);
         const parsedStock = Number(stock);
         const normalizedCategory = String(category || '').trim();
+        const normalizedSupplierSku = String(supplierSku || '').trim().toUpperCase();
+        const normalizedSupplierId = String(supplier || '').trim();
 
         if (!name || !sku || !description) {
             return res.status(400).json({ success: false, message: 'Name, SKU, and description are required' });
@@ -38,6 +47,14 @@ export const addProduct = async (req, res) => {
 
         if (Number.isNaN(parsedDiscountPrice) || parsedDiscountPrice < 0) {
             return res.status(400).json({ success: false, message: 'Discount price must be 0 or greater' });
+        }
+
+        if (Number.isNaN(parsedCostPrice) || parsedCostPrice < 0) {
+            return res.status(400).json({ success: false, message: 'Cost price must be 0 or greater' });
+        }
+
+        if (Number.isNaN(parsedSupplierLeadTimeDays) || parsedSupplierLeadTimeDays < 0) {
+            return res.status(400).json({ success: false, message: 'Supplier lead time must be 0 or greater' });
         }
 
         if (parsedDiscountPrice > parsedPrice) {
@@ -102,6 +119,18 @@ export const addProduct = async (req, res) => {
             });
         }
 
+        let supplierDoc = null;
+        if (normalizedSupplierId) {
+            supplierDoc = await Supplier.findOne({
+                _id: normalizedSupplierId,
+                admin: req.admin._id
+            });
+
+            if (!supplierDoc) {
+                return res.status(400).json({ success: false, message: 'Selected supplier was not found' });
+            }
+        }
+
         const parseBoolean = (value) => value === true || value === 'true';
         const featuredFlag = parseBoolean(featured);
         const bestsellerFlag = parseBoolean(bestseller);
@@ -132,6 +161,10 @@ export const addProduct = async (req, res) => {
             discountPrice: parsedDiscountPrice,
             category: normalizedCategory,
             brand,
+            supplier: supplierDoc?._id || null,
+            supplierSku: normalizedSupplierSku,
+            costPrice: parsedCostPrice,
+            supplierLeadTimeDays: parsedSupplierLeadTimeDays,
             stock: parsedStock,
             sizes,
             featured: featuredFlag,
@@ -152,7 +185,7 @@ export const addProduct = async (req, res) => {
 
 export const getAllProducts = async (req, res) => {
     try {
-        const products = await Product.find({ isActive: true });
+        const products = await Product.find({ isActive: true }).populate('supplier', 'name companyName email phone fulfillmentLeadTimeDays');
         res.json({ products });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -162,7 +195,7 @@ export const getAllProducts = async (req, res) => {
 export const getProductsByCategory = async (req, res) => {
     try {
         const { category } = req.params;
-        const products = await Product.find({ category, isActive: true });
+        const products = await Product.find({ category, isActive: true }).populate('supplier', 'name companyName email phone fulfillmentLeadTimeDays');
         res.json({ products });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -172,7 +205,7 @@ export const getProductsByCategory = async (req, res) => {
 export const getProductById = async (req, res) => {
     try {
         const { id } = req.params;
-        const product = await Product.findById(id);
+        const product = await Product.findById(id).populate('supplier', 'name companyName email phone website address fulfillmentLeadTimeDays shippingRegions notes');
         if (!product || !product.isActive) {
             return res.status(404).json({ message: 'Product not found' });
         }
@@ -209,7 +242,7 @@ export const searchProducts = async (req, res) => {
             ];
         }
 
-        const products = await Product.find(filter);
+        const products = await Product.find(filter).populate('supplier', 'name companyName email phone fulfillmentLeadTimeDays');
         res.json({ products });
     } catch (error) {
         res.status(500).json({ message: error.message });

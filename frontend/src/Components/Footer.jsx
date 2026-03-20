@@ -55,16 +55,19 @@ const Footer = () => {
                         </p>
 
                         <div className="mt-4 flex items-center gap-3">
-                            {socialLinks.map(({ icon: Icon, label, to }) => (
-                                <Link
-                                    key={label}
-                                    to={to}
-                                    aria-label={label}
-                                    className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-200 transition hover:border-amber-300/50 hover:text-amber-300"
-                                >
-                                    <Icon className="h-4 w-4" />
-                                </Link>
-                            ))}
+                            {socialLinks.map(({ icon, label, to }) => {
+                                const SocialIcon = icon;
+                                return (
+                                    <Link
+                                        key={label}
+                                        to={to}
+                                        aria-label={label}
+                                        className="rounded-full border border-white/10 bg-white/5 p-2 text-slate-200 transition hover:border-amber-300/50 hover:text-amber-300"
+                                    >
+                                        <SocialIcon className="h-4 w-4" />
+                                    </Link>
+                                );
+                            })}
                         </div>
                     </div>
 

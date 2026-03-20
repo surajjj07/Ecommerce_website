@@ -1,7 +1,25 @@
 import Admin from '../models/Admin.js';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { generateToken } from '../config/token.js';
 import cloudinary from '../config/cloudinary.js';
+import { sendEmail } from '../Services/emailService.js';
+
+const buildResetOtpEmail = ({ adminName, otp }) => `
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+        <h2 style="margin-bottom: 8px;">Admin Password Reset</h2>
+        <p>Hello ${adminName || "Admin"},</p>
+        <p>Use the OTP below to verify your password reset request.</p>
+        <div style="margin: 20px 0; padding: 14px 18px; display: inline-block; border-radius: 12px; background: #0f172a; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 6px;">
+            ${otp}
+        </div>
+        <p>This OTP will expire in 10 minutes.</p>
+        <p>If you did not request this, you can safely ignore this email.</p>
+    </div>
+`;
+
+const createHash = (value) =>
+    crypto.createHash('sha256').update(String(value)).digest('hex');
 
 export const signup = async (req, res) => {
     try {
@@ -101,6 +119,137 @@ export const getProfile = async (req, res) => {
         res.json({ admin: { id: admin._id, name: admin.name, email: admin.email, profilePic: admin.profilePic, permissions: admin.permissions } });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+};
+
+export const requestPasswordResetOtp = async (req, res) => {
+    try {
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        if (!email) {
+            return res.status(400).json({ success: false, message: 'Email is required' });
+        }
+
+        const admin = await Admin.findOne({ email });
+        if (!admin) {
+            return res.status(404).json({ success: false, message: 'Admin account not found' });
+        }
+
+        const otp = String(crypto.randomInt(100000, 999999));
+        admin.passwordResetOtpHash = createHash(otp);
+        admin.passwordResetOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        admin.passwordResetTokenHash = '';
+        admin.passwordResetTokenExpiresAt = null;
+        await admin.save();
+
+        await sendEmail({
+            to: admin.email,
+            subject: 'Admin password reset OTP',
+            html: buildResetOtpEmail({ adminName: admin.name, otp }),
+        });
+
+        return res.json({
+            success: true,
+            message: 'OTP sent successfully to your admin email',
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const verifyPasswordResetOtp = async (req, res) => {
+    try {
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        const otp = String(req.body?.otp || '').trim();
+
+        if (!email || !otp) {
+            return res.status(400).json({ success: false, message: 'Email and OTP are required' });
+        }
+
+        const admin = await Admin.findOne({ email });
+        if (!admin) {
+            return res.status(404).json({ success: false, message: 'Admin account not found' });
+        }
+
+        const isExpired =
+            !admin.passwordResetOtpExpiresAt ||
+            new Date(admin.passwordResetOtpExpiresAt).getTime() < Date.now();
+
+        if (!admin.passwordResetOtpHash || isExpired) {
+            return res.status(400).json({ success: false, message: 'OTP expired. Please request a new one.' });
+        }
+
+        if (createHash(otp) !== admin.passwordResetOtpHash) {
+            return res.status(400).json({ success: false, message: 'Invalid OTP' });
+        }
+
+        const resetToken = crypto.randomBytes(24).toString('hex');
+        admin.passwordResetTokenHash = createHash(resetToken);
+        admin.passwordResetTokenExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        await admin.save();
+
+        return res.json({
+            success: true,
+            message: 'OTP verified successfully',
+            resetToken,
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const resetPasswordWithOtp = async (req, res) => {
+    try {
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        const resetToken = String(req.body?.resetToken || '').trim();
+        const newPassword = String(req.body?.newPassword || '');
+
+        if (!email || !resetToken || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email, reset token, and new password are required',
+            });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be at least 6 characters',
+            });
+        }
+
+        const admin = await Admin.findOne({ email });
+        if (!admin) {
+            return res.status(404).json({ success: false, message: 'Admin account not found' });
+        }
+
+        const isExpired =
+            !admin.passwordResetTokenExpiresAt ||
+            new Date(admin.passwordResetTokenExpiresAt).getTime() < Date.now();
+
+        if (!admin.passwordResetTokenHash || isExpired) {
+            return res.status(400).json({
+                success: false,
+                message: 'Reset session expired. Please verify OTP again.',
+            });
+        }
+
+        if (createHash(resetToken) !== admin.passwordResetTokenHash) {
+            return res.status(400).json({ success: false, message: 'Invalid reset session' });
+        }
+
+        admin.password = await bcrypt.hash(newPassword, 10);
+        admin.passwordResetOtpHash = '';
+        admin.passwordResetOtpExpiresAt = null;
+        admin.passwordResetTokenHash = '';
+        admin.passwordResetTokenExpiresAt = null;
+        await admin.save();
+
+        return res.json({
+            success: true,
+            message: 'Password reset successful. Please login with your new password.',
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
     }
 };
 

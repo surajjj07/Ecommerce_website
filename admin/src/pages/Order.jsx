@@ -14,9 +14,7 @@ export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [updatingOrderId, setUpdatingOrderId] = useState("");
-  const [creatingShipmentId, setCreatingShipmentId] = useState("");
-  const [syncingShipmentId, setSyncingShipmentId] = useState("");
+  const [actionKey, setActionKey] = useState("");
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -40,68 +38,91 @@ export default function Orders() {
     );
   };
 
-  const updateOrderStatus = async (orderId, status) => {
+  const patchOrder = (nextOrder, removeDelivered = false) => {
+    setOrders((prev) => {
+      const updated = prev.map((order) =>
+        order._id === nextOrder._id ? { ...order, ...nextOrder } : order
+      );
+      return removeDelivered
+        ? updated.filter((order) => order.status !== "delivered")
+        : updated;
+    });
+  };
+
+  const runAction = async ({ key, request, successMessage, removeDelivered = false }) => {
     try {
-      setUpdatingOrderId(orderId);
-      const res = await api.put(`/orders/${orderId}/status`, { status });
+      setActionKey(key);
+      const res = await request();
 
       if (!res?.success || !res?.order) {
-        throw new Error(res?.message || "Failed to update order status");
+        throw new Error(res?.message || "Action failed");
       }
 
-      setOrders((prev) =>
-        prev
-          .map((order) => (order._id === orderId ? { ...order, ...res.order } : order))
-          .filter((order) => order.status !== "delivered")
-      );
-      showToast(res?.message || "Order status updated", "success");
+      patchOrder(res.order, removeDelivered);
+      showToast(res?.message || successMessage, "success");
     } catch (err) {
-      showToast(err.message || "Failed to update order status", "error");
+      showToast(err.message || successMessage || "Action failed", "error");
     } finally {
-      setUpdatingOrderId("");
+      setActionKey("");
     }
   };
 
-  const createShipment = async (orderId) => {
-    try {
-      setCreatingShipmentId(orderId);
-      const res = await api.post(`/orders/${orderId}/shipping/create`);
+  const createAdminShipment = (orderId, groupId) =>
+    runAction({
+      key: `${orderId}:${groupId}:admin-create`,
+      request: () =>
+        api.post(`/orders/${orderId}/fulfillment-groups/${groupId}/admin-shipping/create`),
+      successMessage: "Admin shipment created",
+    });
 
-      if (!res?.success || !res?.order) {
-        throw new Error(res?.message || "Failed to create shipment");
-      }
+  const syncAdminShipment = (orderId, groupId) =>
+    runAction({
+      key: `${orderId}:${groupId}:admin-sync`,
+      request: () =>
+        api.post(`/orders/${orderId}/fulfillment-groups/${groupId}/admin-shipping/sync`),
+      successMessage: "Admin shipment synced",
+    });
 
-      setOrders((prev) =>
-        prev.map((order) => (order._id === orderId ? { ...order, ...res.order } : order))
-      );
-      showToast(res?.message || "Shipment created", "success");
-    } catch (err) {
-      showToast(err.message || "Failed to create shipment", "error");
-    } finally {
-      setCreatingShipmentId("");
-    }
-  };
+  const startSupplierFulfillment = (orderId, groupId, mode) =>
+    runAction({
+      key: `${orderId}:${groupId}:${mode}`,
+      request: () =>
+        api.post(`/orders/${orderId}/fulfillment-groups/${groupId}/supplier/start`, {
+          mode,
+          note:
+            mode === "manual"
+              ? window.prompt("Manual note for supplier handoff", "") || ""
+              : "",
+        }),
+      successMessage:
+        mode === "automated"
+          ? "Supplier API triggered"
+          : "Manual supplier handoff saved",
+    });
 
-  const syncShipment = async (orderId) => {
-    try {
-      setSyncingShipmentId(orderId);
-      const res = await api.post(`/orders/${orderId}/shipping/sync`);
+  const updateSupplierGroup = (orderId, groupId, status) => {
+    const trackingNumber =
+      status === "shipped"
+        ? window.prompt("Tracking number (optional)", "") || ""
+        : "";
+    const trackingUrl =
+      status === "shipped"
+        ? window.prompt("Tracking URL (optional)", "") || ""
+        : "";
+    const note = window.prompt("Add note (optional)", "") || "";
 
-      if (!res?.success || !res?.order) {
-        throw new Error(res?.message || "Failed to sync tracking");
-      }
-
-      setOrders((prev) =>
-        prev
-          .map((order) => (order._id === orderId ? { ...order, ...res.order } : order))
-          .filter((order) => order.status !== "delivered")
-      );
-      showToast(res?.message || "Tracking synced", "success");
-    } catch (err) {
-      showToast(err.message || "Failed to sync tracking", "error");
-    } finally {
-      setSyncingShipmentId("");
-    }
+    return runAction({
+      key: `${orderId}:${groupId}:${status}`,
+      request: () =>
+        api.post(`/orders/${orderId}/fulfillment-groups/${groupId}/supplier/status`, {
+          status,
+          note,
+          trackingNumber,
+          trackingUrl,
+        }),
+      successMessage: `Supplier group marked ${status}`,
+      removeDelivered: status === "delivered",
+    });
   };
 
   const stats = useMemo(() => {
@@ -148,8 +169,8 @@ export default function Orders() {
               Order Management
             </h1>
             <p className="max-w-xl text-sm text-slate-200/80 sm:text-base">
-              Track customer purchases, payment status, and invoice history in
-              one place.
+              Track admin shipping, supplier API fulfillment, notes, and tracking
+              per fulfillment group.
             </p>
           </div>
           <div className="rounded-2xl bg-white/10 px-5 py-4 text-center shadow-inner">
@@ -167,216 +188,209 @@ export default function Orders() {
       </section>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <StatCard
-          icon={<ShoppingBag size={20} />}
-          label="Total Orders"
-          value={stats.totalOrders}
-        />
-        <StatCard
-          icon={<WalletCards size={20} />}
-          label="Revenue"
-          value={formatMoney(stats.totalRevenue)}
-        />
-        <StatCard
-          icon={<CreditCard size={20} />}
-          label="Paid Rate"
-          value={`${stats.paidRate}%`}
-        />
+        <StatCard icon={<ShoppingBag size={20} />} label="Total Orders" value={stats.totalOrders} />
+        <StatCard icon={<WalletCards size={20} />} label="Revenue" value={formatMoney(stats.totalRevenue)} />
+        <StatCard icon={<CreditCard size={20} />} label="Paid Rate" value={`${stats.paidRate}%`} />
       </section>
 
-      {/* ===== Desktop Table ===== */}
-      <div className="hidden overflow-hidden rounded-3xl border bg-white shadow-sm md:block">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase tracking-[0.18em] text-slate-500">
-            <tr>
-              <th className="px-6 py-4 text-left">Order</th>
-              <th className="px-6 py-4 text-left">Customer</th>
-              <th className="px-6 py-4 text-left">Amount</th>
-              <th className="px-6 py-4 text-left">Payment</th>
-              <th className="px-6 py-4 text-left">Shipment</th>
-              <th className="px-6 py-4 text-right">Actions</th>
-            </tr>
-          </thead>
-
-          <tbody className="divide-y divide-slate-100">
-            {orders.map((order) => (
-              <tr key={order._id} className="hover:bg-slate-50/80">
-                <td className="px-6 py-4 font-semibold text-slate-800">
-                  #{order.orderId || order._id.slice(-6)}
-                </td>
-                <td className="px-6 py-4 text-slate-600">
-                  {order.user?.name || "Guest"}
-                </td>
-                <td className="px-6 py-4 text-slate-700">
-                  {formatMoney(order.totalAmount || 0)}
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-slate-600">
-                      {order.paymentMethod || "Online"}
-                    </span>
-                    <StatusPill status={order.status} />
-                  </div>
-                </td>
-                <td className="px-6 py-4 text-xs text-slate-600">
-                  {order.shipment?.awbCode ? (
-                    <div className="space-y-1">
-                      <p className="font-semibold text-slate-800">AWB: {order.shipment.awbCode}</p>
-                      <p>{order.shipment.courierName || "Shiprocket"}</p>
-                      <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                        {order.shipment.status || "created"}
-                      </p>
-                      {order.shipment.trackingUrl ? (
-                        <a
-                          href={order.shipment.trackingUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-indigo-600 hover:underline"
-                        >
-                          Track Shipment
-                        </a>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <span className="text-amber-700">Not Created</span>
-                  )}
-                </td>
-                <td className="px-6 py-4 text-right space-x-3">
-                  {getStatusAction(order) ? (
-                    <button
-                      onClick={() =>
-                        getStatusAction(order).type === "shipment"
-                          ? createShipment(order._id)
-                          : updateOrderStatus(order._id, getStatusAction(order).nextStatus)
-                      }
-                      disabled={updatingOrderId === order._id || creatingShipmentId === order._id}
-                      className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 disabled:opacity-60"
-                    >
-                      {updatingOrderId === order._id || creatingShipmentId === order._id
-                        ? "Updating..."
-                        : getStatusAction(order).label}
-                    </button>
-                  ) : null}
-                  {order.shipment?.awbCode ? (
-                    <button
-                      onClick={() => syncShipment(order._id)}
-                      disabled={syncingShipmentId === order._id}
-                      className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 transition hover:border-sky-300 disabled:opacity-60"
-                    >
-                      {syncingShipmentId === order._id ? "Syncing..." : "Sync Tracking"}
-                    </button>
-                  ) : null}
-                  <button className="rounded-full border border-slate-200 p-2 text-slate-600 transition hover:border-slate-300 hover:text-slate-900">
-                    <Eye size={16} />
-                  </button>
-                  <button
-                    onClick={() => downloadInvoice(order._id)}
-                    className="rounded-full border border-emerald-200 bg-emerald-50 p-2 text-emerald-700 transition hover:border-emerald-300"
-                  >
-                    <FileText size={16} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* ===== Mobile Cards ===== */}
-      <div className="space-y-4 md:hidden">
+      <div className="space-y-4">
         {orders.map((order) => (
-          <div
+          <article
             key={order._id}
-            className="space-y-3 rounded-3xl border bg-white p-4 shadow-sm"
+            className="rounded-3xl border bg-white p-5 shadow-sm"
           >
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-800">
-                #{order.orderId || order._id.slice(-6)}
-              </span>
-              <StatusPill status={order.status} />
-            </div>
-
-            <div className="space-y-1 text-sm text-slate-600">
-              <p>
-                <span className="text-slate-500">Customer:</span>{" "}
-                {order.user?.name || "Guest"}
-              </p>
-              <p>
-                <span className="text-slate-500">Payment:</span>{" "}
-                {order.paymentMethod || "Online"}
-              </p>
-              <p>
-                <span className="text-slate-500">AWB:</span>{" "}
-                {order.shipment?.awbCode || "Not Created"}
-              </p>
-              {order.shipment?.awbCode ? (
-                <p>
-                  <span className="text-slate-500">Tracking Status:</span>{" "}
-                  {order.shipment?.status || "created"}
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    #{order.orderId || order._id.slice(-6)}
+                  </h2>
+                  <StatusPill status={order.status} />
+                </div>
+                <p className="text-sm text-slate-600">
+                  {order.user?.name || "Guest"} • {order.paymentMethod || "Online"} • {formatMoney(order.totalAmount || 0)}
                 </p>
-              ) : null}
-              <p className="font-semibold text-slate-800">
-                {formatMoney(order.totalAmount || 0)}
-              </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button className="rounded-full border border-slate-200 p-2 text-slate-600 transition hover:border-slate-300 hover:text-slate-900">
+                  <Eye size={16} />
+                </button>
+                <button
+                  onClick={() => downloadInvoice(order._id)}
+                  className="rounded-full border border-emerald-200 bg-emerald-50 p-2 text-emerald-700 transition hover:border-emerald-300"
+                >
+                  <FileText size={16} />
+                </button>
+              </div>
             </div>
 
-            <div className="flex justify-end gap-3 pt-2">
-              {getStatusAction(order) ? (
-                <button
-                  onClick={() =>
-                    getStatusAction(order).type === "shipment"
-                      ? createShipment(order._id)
-                      : updateOrderStatus(order._id, getStatusAction(order).nextStatus)
-                  }
-                  disabled={updatingOrderId === order._id || creatingShipmentId === order._id}
-                  className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 disabled:opacity-60"
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              {(order.fulfillmentGroups || []).map((group) => (
+                <div
+                  key={group.groupId}
+                  className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4"
                 >
-                  {updatingOrderId === order._id || creatingShipmentId === order._id
-                    ? "Updating..."
-                    : getStatusAction(order).label}
-                </button>
-              ) : null}
-              {order.shipment?.awbCode ? (
-                <button
-                  onClick={() => syncShipment(order._id)}
-                  disabled={syncingShipmentId === order._id}
-                  className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 disabled:opacity-60"
-                >
-                  {syncingShipmentId === order._id ? "Syncing..." : "Sync Tracking"}
-                </button>
-              ) : null}
-              <button className="rounded-full border border-slate-200 p-2 text-slate-600">
-                <Eye size={18} />
-              </button>
-              <button
-                onClick={() => downloadInvoice(order._id)}
-                className="rounded-full border border-emerald-200 bg-emerald-50 p-2 text-emerald-700"
-              >
-                <FileText size={18} />
-              </button>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${group.channel === "admin" ? "bg-slate-900 text-white" : "bg-sky-100 text-sky-700"}`}>
+                          {group.channel === "admin" ? "Admin Fulfillment" : "Supplier Fulfillment"}
+                        </span>
+                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                          {String(group.status || "not_started").replace(/_/g, " ")}
+                        </span>
+                        {group.mode && group.mode !== "none" ? (
+                          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                            {group.mode}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <p className="text-sm font-semibold text-slate-800">
+                        {group.channel === "supplier"
+                          ? group.supplier?.name || "Supplier"
+                          : "Store Shipping Team"}
+                      </p>
+
+                      <div className="space-y-1 text-sm text-slate-600">
+                        <p>Items: {getGroupItemNames(order, group)}</p>
+                        {group.shipment?.awbCode ? <p>AWB: {group.shipment.awbCode}</p> : null}
+                        {group.trackingNumber ? <p>Tracking: {group.trackingNumber}</p> : null}
+                        {group.trackingUrl ? (
+                          <a
+                            href={group.trackingUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sky-700 hover:underline"
+                          >
+                            Open tracking
+                          </a>
+                        ) : null}
+                        {group.note ? (
+                          <p className="rounded-2xl bg-white px-3 py-2 text-sm text-slate-600">
+                            {group.note}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 lg:max-w-[260px] lg:justify-end">
+                      <GroupActions
+                        order={order}
+                        group={group}
+                        actionKey={actionKey}
+                        onCreateAdminShipment={createAdminShipment}
+                        onSyncAdminShipment={syncAdminShipment}
+                        onStartSupplierFulfillment={startSupplierFulfillment}
+                        onUpdateSupplierGroup={updateSupplierGroup}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+          </article>
         ))}
       </div>
     </div>
   );
 }
 
-function getStatusAction(order) {
-  const current = String(order?.status || "").toLowerCase();
-  const hasShipment = Boolean(order?.shipment?.awbCode);
+function GroupActions({
+  order,
+  group,
+  actionKey,
+  onCreateAdminShipment,
+  onSyncAdminShipment,
+  onStartSupplierFulfillment,
+  onUpdateSupplierGroup,
+}) {
+  const orderId = order._id;
+  const groupId = group.groupId;
 
-  if (current === "pending") {
-    return { type: "status", label: "Accept Order", nextStatus: "processing" };
+  if (group.channel === "admin") {
+    return (
+      <>
+        {!group.shipment?.awbCode ? (
+          <button
+            onClick={() => onCreateAdminShipment(orderId, groupId)}
+            disabled={actionKey === `${orderId}:${groupId}:admin-create`}
+            className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 disabled:opacity-60"
+          >
+            {actionKey === `${orderId}:${groupId}:admin-create`
+              ? "Creating..."
+              : "Create Admin Shipment"}
+          </button>
+        ) : (
+          <button
+            onClick={() => onSyncAdminShipment(orderId, groupId)}
+            disabled={actionKey === `${orderId}:${groupId}:admin-sync`}
+            className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 transition hover:border-sky-300 disabled:opacity-60"
+          >
+            {actionKey === `${orderId}:${groupId}:admin-sync`
+              ? "Syncing..."
+              : "Sync Admin Tracking"}
+          </button>
+        )}
+      </>
+    );
   }
-  if (current === "processing" && !hasShipment) {
-    return { type: "shipment", label: "Create Shipment" };
+
+  if (group.status === "not_started") {
+    return (
+      <>
+        <button
+          onClick={() => onStartSupplierFulfillment(orderId, groupId, "manual")}
+          disabled={actionKey === `${orderId}:${groupId}:manual`}
+          className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition hover:border-amber-300 disabled:opacity-60"
+        >
+          {actionKey === `${orderId}:${groupId}:manual` ? "Saving..." : "Manual Supplier"}
+        </button>
+        <button
+          onClick={() => onStartSupplierFulfillment(orderId, groupId, "automated")}
+          disabled={actionKey === `${orderId}:${groupId}:automated`}
+          className="rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 transition hover:border-sky-300 disabled:opacity-60"
+        >
+          {actionKey === `${orderId}:${groupId}:automated` ? "Calling API..." : "API to Supplier"}
+        </button>
+      </>
+    );
   }
-  if (current === "shipped") {
-    return { type: "status", label: "Mark Delivered", nextStatus: "delivered" };
+
+  if (group.status === "requested") {
+    return (
+      <button
+        onClick={() => onUpdateSupplierGroup(orderId, groupId, "shipped")}
+        disabled={actionKey === `${orderId}:${groupId}:shipped`}
+        className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 disabled:opacity-60"
+      >
+        {actionKey === `${orderId}:${groupId}:shipped` ? "Updating..." : "Mark Supplier Shipped"}
+      </button>
+    );
+  }
+
+  if (group.status === "shipped") {
+    return (
+      <button
+        onClick={() => onUpdateSupplierGroup(orderId, groupId, "delivered")}
+        disabled={actionKey === `${orderId}:${groupId}:delivered`}
+        className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 disabled:opacity-60"
+      >
+        {actionKey === `${orderId}:${groupId}:delivered` ? "Updating..." : "Mark Supplier Delivered"}
+      </button>
+    );
   }
 
   return null;
+}
+
+function getGroupItemNames(order, group) {
+  const productIds = new Set((group.productIds || []).map((id) => String(id)));
+  return (order.items || [])
+    .filter((item) => productIds.has(String(item.product?._id || item.product)))
+    .map((item) => `${item.product?.name || "Product"} x${item.quantity}`)
+    .join(", ");
 }
 
 function StatCard({ icon, label, value }) {
@@ -385,9 +399,7 @@ function StatCard({ icon, label, value }) {
       <div className="flex items-center justify-between">
         <div className="rounded-2xl bg-slate-900 p-2 text-white">{icon}</div>
       </div>
-      <p className="mt-4 text-xs uppercase tracking-[0.2em] text-slate-500">
-        {label}
-      </p>
+      <p className="mt-4 text-xs uppercase tracking-[0.2em] text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p>
     </div>
   );
@@ -405,9 +417,7 @@ function StatusPill({ status }) {
     : "bg-amber-50 text-amber-700 border-amber-100";
 
   return (
-    <span
-      className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${tone}`}
-    >
+    <span className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-semibold ${tone}`}>
       {safeStatus}
     </span>
   );

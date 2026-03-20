@@ -43,6 +43,7 @@ export const CategoryProvider = ({ children }) => {
     return <CategoryContext.Provider value={value}>{children}</CategoryContext.Provider>;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useCategories = () => {
     const context = useContext(CategoryContext);
     if (!context) {

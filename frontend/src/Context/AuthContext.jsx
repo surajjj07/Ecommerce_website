@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useToast } from "./ToastContext";
 import { api } from "../services/api";
 
@@ -11,7 +11,7 @@ export const AuthProvider = ({ children }) => {
 
     const API_URL = `${import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"}/users`;
 
-    const fetchUser = async () => {
+    const fetchUser = useCallback(async () => {
         try {
             const res = await fetch(`${API_URL}/profile`, {
                 credentials: "include",
@@ -26,11 +26,11 @@ export const AuthProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [API_URL]);
 
     useEffect(() => {
         fetchUser();
-    }, []);
+    }, [fetchUser]);
 
     const signup = async (name, email, password, phone = "") => {
         const res = await fetch(`${API_URL}/signup`, {
@@ -64,6 +64,54 @@ export const AuthProvider = ({ children }) => {
             showToast("Login successful", "success");
         } else {
             showToast(data?.message || "Login failed", "error");
+        }
+        return data;
+    };
+
+    const requestPasswordResetOtp = async (email) => {
+        const res = await fetch(`${API_URL}/forgot-password/request-otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email }),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+            showToast(data?.message || "OTP sent successfully", "success");
+        } else {
+            showToast(data?.message || "Failed to send OTP", "error");
+        }
+        return data;
+    };
+
+    const verifyPasswordResetOtp = async (email, otp) => {
+        const res = await fetch(`${API_URL}/forgot-password/verify-otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, otp }),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+            showToast(data?.message || "OTP verified", "success");
+        } else {
+            showToast(data?.message || "OTP verification failed", "error");
+        }
+        return data;
+    };
+
+    const resetPasswordWithOtp = async (email, resetToken, newPassword) => {
+        const res = await fetch(`${API_URL}/forgot-password/reset`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, resetToken, newPassword }),
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+            showToast(data?.message || "Password reset successful", "success");
+        } else {
+            showToast(data?.message || "Password reset failed", "error");
         }
         return data;
     };
@@ -118,6 +166,9 @@ export const AuthProvider = ({ children }) => {
                 loading,
                 signup,
                 login,
+                requestPasswordResetOtp,
+                verifyPasswordResetOtp,
+                resetPasswordWithOtp,
                 logout,
                 setProfilePic,
                 updateProfile,
@@ -129,4 +180,5 @@ export const AuthProvider = ({ children }) => {
     );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);

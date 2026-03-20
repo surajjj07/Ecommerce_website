@@ -18,23 +18,29 @@ export default function AddProduct() {
   const [images, setImages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [categoryInput, setCategoryInput] = useState("");
   const [addingCategory, setAddingCategory] = useState(false);
+  const [catalogSupplierId, setCatalogSupplierId] = useState("");
+  const [syncingCatalog, setSyncingCatalog] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
     sku: "",
     category: "",
+    supplier: "",
+    supplierSku: "",
     description: "",
     price: "",
     discountPrice: "",
+    costPrice: "",
+    supplierLeadTimeDays: "",
     stock: "",
     sizes: [],
     featured: false,
     bestseller: false,
   });
 
-  /* ---------- handlers ---------- */
   const fetchCategories = async () => {
     try {
       const res = await api.get("/categories/all");
@@ -44,8 +50,18 @@ export default function AddProduct() {
     }
   };
 
+  const fetchSuppliers = async () => {
+    try {
+      const res = await api.get("/admin/suppliers");
+      setSuppliers(res?.suppliers || []);
+    } catch (err) {
+      showToast(err.message || "Failed to load suppliers", "error");
+    }
+  };
+
   useEffect(() => {
     fetchCategories();
+    fetchSuppliers();
   }, []);
 
   const handleChange = (e) => {
@@ -111,14 +127,17 @@ export default function AddProduct() {
 
       showToast("Product added successfully", "success");
 
-      // reset form
       setForm({
         name: "",
         sku: "",
         category: "",
+        supplier: "",
+        supplierSku: "",
         description: "",
         price: "",
         discountPrice: "",
+        costPrice: "",
+        supplierLeadTimeDays: "",
         stock: "",
         sizes: [],
         featured: false,
@@ -161,6 +180,31 @@ export default function AddProduct() {
     }
   };
 
+  const handleCatalogSync = async () => {
+    if (!catalogSupplierId) {
+      showToast("Please select a supplier for catalog sync", "info");
+      return;
+    }
+
+    try {
+      setSyncingCatalog(true);
+      const res = await api.post(`/admin/suppliers/${catalogSupplierId}/catalog-sync`);
+      if (!res?.success) {
+        throw new Error(res?.message || "Supplier catalog sync failed");
+      }
+
+      const summary = res.summary || {};
+      showToast(
+        `Catalog synced: ${summary.created || 0} created, ${summary.updated || 0} updated, ${summary.skipped || 0} skipped`,
+        "success"
+      );
+    } catch (err) {
+      showToast(err.message || "Supplier catalog sync failed", "error");
+    } finally {
+      setSyncingCatalog(false);
+    }
+  };
+
   const pricingPreview = useMemo(() => {
     const price = Number(form.price || 0);
     const discount = Number(form.discountPrice || 0);
@@ -177,8 +221,6 @@ export default function AddProduct() {
       percentOff,
     };
   }, [form.price, form.discountPrice]);
-
-  /* ---------- UI ---------- */
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
@@ -206,7 +248,7 @@ export default function AddProduct() {
               Price Preview
             </p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">
-              ₹{pricingPreview.effective.toLocaleString("en-IN")}
+              INR {pricingPreview.effective.toLocaleString("en-IN")}
             </p>
             {pricingPreview.displayDiscount ? (
               <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-700">
@@ -227,8 +269,7 @@ export default function AddProduct() {
         onSubmit={handleSubmit}
         className="grid grid-cols-1 gap-6 lg:grid-cols-3"
       >
-        {/* Left */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="space-y-6 lg:col-span-2">
           <div className="rounded-3xl border bg-white p-6 shadow-sm">
             <SectionHeader
               icon={<Package size={18} />}
@@ -298,6 +339,32 @@ export default function AddProduct() {
                 placeholder="Describe material, fit, and standout features."
               />
             </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="label">Supplier</span>
+                <select
+                  name="supplier"
+                  value={form.supplier}
+                  onChange={handleChange}
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.35)] outline-none transition focus:border-slate-900 focus:ring-4 focus:ring-slate-200/60"
+                >
+                  <option value="">No supplier linked</option>
+                  {suppliers.map((supplier) => (
+                    <option key={supplier._id} value={supplier._id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Input
+                label="Supplier SKU"
+                name="supplierSku"
+                value={form.supplierSku}
+                onChange={handleChange}
+                placeholder="SUP-8891"
+              />
+            </div>
           </div>
 
           <div className="rounded-3xl border bg-white p-6 shadow-sm">
@@ -307,19 +374,26 @@ export default function AddProduct() {
               subtitle="Set the base price, optional discount, and availability."
             />
 
-            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Input
-                label="Price (₹)"
+                label="Price (INR)"
                 name="price"
                 type="number"
                 value={form.price}
                 onChange={handleChange}
               />
               <Input
-                label="Discount Price (₹)"
+                label="Discount Price (INR)"
                 name="discountPrice"
                 type="number"
                 value={form.discountPrice}
+                onChange={handleChange}
+              />
+              <Input
+                label="Cost Price (INR)"
+                name="costPrice"
+                type="number"
+                value={form.costPrice}
                 onChange={handleChange}
               />
               <Input
@@ -329,6 +403,20 @@ export default function AddProduct() {
                 value={form.stock}
                 onChange={handleChange}
               />
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Input
+                label="Supplier Lead Time (days)"
+                name="supplierLeadTimeDays"
+                type="number"
+                value={form.supplierLeadTimeDays}
+                onChange={handleChange}
+              />
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                Use supplier mapping to keep vendor contacts, sourcing cost, and
+                dropshipping turnaround connected to each product.
+              </div>
             </div>
 
             <div className="mt-6">
@@ -368,7 +456,6 @@ export default function AddProduct() {
           </div>
         </div>
 
-        {/* Right */}
         <div className="space-y-6">
           <div className="rounded-3xl border bg-white p-6 shadow-sm">
             <SectionHeader
@@ -426,6 +513,38 @@ export default function AddProduct() {
               subtitle="Review and send the product live."
             />
             <div className="mt-5 space-y-3">
+              <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-4">
+                <p className="text-sm font-semibold text-slate-900">
+                  Import From Supplier API
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Manual product add ke alawa supplier catalog ko direct sync bhi
+                  kar sakte ho.
+                </p>
+                <div className="mt-3 flex flex-col gap-3">
+                  <select
+                    value={catalogSupplierId}
+                    onChange={(e) => setCatalogSupplierId(e.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-900 focus:ring-4 focus:ring-slate-200/60"
+                  >
+                    <option value="">Select supplier</option>
+                    {suppliers.map((supplier) => (
+                      <option key={supplier._id} value={supplier._id}>
+                        {supplier.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleCatalogSync}
+                    disabled={syncingCatalog}
+                    className="rounded-2xl border border-sky-300 bg-white px-4 py-3 text-sm font-semibold text-sky-700 transition hover:border-sky-400 disabled:opacity-60"
+                  >
+                    {syncingCatalog ? "Syncing..." : "Sync Supplier Catalog"}
+                  </button>
+                </div>
+              </div>
+
               <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                 Tip: Add at least 3 images and one size for better conversion.
               </div>
@@ -443,8 +562,6 @@ export default function AddProduct() {
     </div>
   );
 }
-
-/* ---------- UI helpers ---------- */
 
 function SectionHeader({ icon, title, subtitle }) {
   return (

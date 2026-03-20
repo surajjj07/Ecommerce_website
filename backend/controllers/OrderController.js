@@ -6,7 +6,8 @@ import Settings from "../models/Settings.js";
 import User from "../models/User.js";
 import {
     calculateCouponDiscount,
-    incrementCouponUsage,
+    releaseCouponUsage,
+    reserveCouponUsage,
 } from "../Services/couponService.js";
 import {
     notifyOrderDelivered,
@@ -16,6 +17,9 @@ import {
     createShiprocketShipment,
     trackShiprocketShipment,
 } from "../Services/shippingService.js";
+import { sendSupplierFulfillmentRequest } from "../Services/supplierFulfillmentService.js";
+import { sendSupplierWhatsAppHandoff } from "../Services/supplierHandoffService.js";
+import { getEffectiveProductPrice } from "../utils/pricing.js";
 
 const getRazorpayInstance = () => {
     const keyId = process.env.RAZORPAY_KEY_ID;
@@ -52,6 +56,7 @@ const validateAndBuildOrderItems = async (incomingItems) => {
     let totalAmount = 0;
     const orderProducts = [];
     let ownerAdminId = null;
+    const fulfillmentGroupMap = new Map();
 
     for (const item of incomingItems) {
         const product = await Product.findById(item.product);
@@ -75,16 +80,42 @@ const validateAndBuildOrderItems = async (incomingItems) => {
             throw new Error("You can only place one store admin's products in a single order");
         }
 
+        const effectivePrice = getEffectiveProductPrice(product);
+
         orderProducts.push({
             product: item.product,
             quantity: item.quantity,
-            price: product.price,
+            price: effectivePrice,
         });
 
-        totalAmount += product.price * item.quantity;
+        const supplierId = product.supplier ? product.supplier.toString() : "";
+        const groupKey = supplierId ? `supplier:${supplierId}` : "admin";
+        if (!fulfillmentGroupMap.has(groupKey)) {
+            fulfillmentGroupMap.set(groupKey, {
+                groupId: supplierId ? `supplier-${supplierId}` : "admin-main",
+                channel: supplierId ? "supplier" : "admin",
+                supplier: product.supplier || null,
+                productIds: [],
+                mode: "none",
+                status: "not_started",
+                note: "",
+            });
+        }
+
+        const group = fulfillmentGroupMap.get(groupKey);
+        if (!group.productIds.some((id) => id.toString() === product._id.toString())) {
+            group.productIds.push(product._id);
+        }
+
+        totalAmount += effectivePrice * item.quantity;
     }
 
-    return { orderProducts, totalAmount, ownerAdminId };
+    return {
+        orderProducts,
+        totalAmount,
+        ownerAdminId,
+        fulfillmentGroups: [...fulfillmentGroupMap.values()],
+    };
 };
 
 const decrementStockForOrder = async (order) => {
@@ -120,6 +151,102 @@ const decrementStockForOrder = async (order) => {
     }
 };
 
+const getSupplierRef = (item) => item?.product?.supplier || item?.supplier || null;
+
+const orderSupportsSupplierFulfillment = (order) => {
+    const items = order?.items || [];
+    if (items.length === 0) return false;
+
+    return items.every((item) => Boolean(getSupplierRef(item)?._id || getSupplierRef(item)));
+};
+
+const getOrderFulfillmentChannel = (order) =>
+    orderSupportsSupplierFulfillment(order) ? "supplier" : "admin";
+
+const getFulfillmentChannelForProductIds = async (productIds = []) => {
+    const products = await Product.find({ _id: { $in: productIds } }).select("supplier");
+    return getOrderFulfillmentChannel({ items: products });
+};
+
+const getOrderItemsForGroup = (order, group) =>
+    (order.items || []).filter((item) =>
+        (group.productIds || []).some(
+            (productId) =>
+                productId.toString() === (item.product?._id || item.product)?.toString()
+        )
+    );
+
+const findFulfillmentGroup = (order, groupId) =>
+    (order.fulfillmentGroups || []).find((group) => group.groupId === groupId);
+
+const buildSupplierPickupOverride = (supplier) => {
+    if (!supplier) return null;
+
+    const pickup = {
+        pickupLocation:
+            String(supplier.pickupLocationCode || "").trim() ||
+            `SUP-${(supplier._id || "").toString().slice(-6) || "pickup"}`,
+        pickupPincode: String(supplier.pickupPincode || "").trim(),
+        pickupCity: String(supplier.pickupCity || "").trim(),
+        pickupState: String(supplier.pickupState || "").trim(),
+        pickupCountry: String(supplier.pickupCountry || "India").trim(),
+        pickupAddress: String(supplier.pickupAddressLine1 || supplier.address || "").trim(),
+        pickupAddressLine2: String(supplier.pickupAddressLine2 || "").trim(),
+        pickupPhone: String(
+            supplier.pickupPhone || supplier.phone || supplier.whatsappNumber || ""
+        ).trim(),
+        pickupContactName: String(
+            supplier.pickupContactName || supplier.name || supplier.companyName || "Supplier"
+        ).trim(),
+        pickupEmail: String(supplier.email || "").trim(),
+    };
+
+    const missing = [];
+    if (!pickup.pickupAddress) missing.push("address");
+    if (!pickup.pickupCity) missing.push("city");
+    if (!pickup.pickupState) missing.push("state");
+    if (!pickup.pickupPincode) missing.push("pincode");
+    if (!pickup.pickupPhone) missing.push("phone");
+
+    if (missing.length > 0) {
+        throw new Error(
+            `Supplier pickup details are incomplete (${missing.join(
+                ", "
+            )}). Please update supplier pickup address in supplier profile.`
+        );
+    }
+
+    return pickup;
+};
+
+const recomputeOrderStatusFromGroups = (order) => {
+    const groups = order.fulfillmentGroups || [];
+    if (groups.length === 0) {
+        return order.status;
+    }
+
+    if (groups.every((group) => group.status === "delivered")) {
+        return "delivered";
+    }
+
+    if (groups.some((group) => group.status === "shipped" || group.status === "delivered")) {
+        return "shipped";
+    }
+
+    if (groups.some((group) => group.status === "requested")) {
+        return "processing";
+    }
+
+    return "pending";
+};
+
+const ensureStockDeducted = async (order) => {
+    if (!order.stockDeducted) {
+        await decrementStockForOrder(order);
+        order.stockDeducted = true;
+    }
+};
+
 const restoreStockForOrder = async (order) => {
     const updates = (order.items || []).map((item) => {
         const productId = item.product?._id || item.product;
@@ -146,6 +273,7 @@ const createOrderDocument = async ({
     paymentId = null,
     paymentGatewayOrderId = null,
     paymentSignature = null,
+    fulfillmentGroups = [],
 }) => {
     const orderId = `ORD-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
 
@@ -165,6 +293,7 @@ const createOrderDocument = async ({
         paymentId,
         paymentGatewayOrderId,
         paymentSignature,
+        fulfillmentGroups,
     });
 
     await order.save();
@@ -246,7 +375,13 @@ export const createOrder = async (req, res) => {
         });
 
         const normalizedPaymentMethod = paymentMethod === "online" ? "online" : "cod";
-        const { orderProducts, totalAmount, ownerAdminId } =
+        if (normalizedPaymentMethod !== "cod") {
+            return res.status(400).json({
+                message:
+                    "Online orders must be completed through the payment gateway verification flow",
+            });
+        }
+        const { orderProducts, totalAmount, ownerAdminId, fulfillmentGroups } =
             await validateAndBuildOrderItems(incomingItems);
         const { discountAmount, couponCode: appliedCouponCode, appliedCoupon, reason } =
             await calculateCouponDiscount({
@@ -262,25 +397,56 @@ export const createOrder = async (req, res) => {
         if (normalizedPaymentMethod === "cod" && settings.codEnabled === false) {
             return res.status(400).json({ message: "Cash on Delivery is currently disabled for this store" });
         }
-        if (normalizedPaymentMethod === "online" && settings.onlinePaymentEnabled === false) {
-            return res.status(400).json({ message: "Online payment is currently disabled for this store" });
+
+        let finalDiscountAmount = discountAmount;
+        let finalCouponCode = appliedCouponCode;
+        let finalAppliedCoupon = appliedCoupon;
+        let reservedCouponId = null;
+
+        if (appliedCouponCode) {
+            const reservedCoupon = await reserveCouponUsage({
+                adminId: ownerAdminId,
+                subtotalAmount: totalAmount,
+                couponCode: appliedCouponCode,
+            });
+
+            if (!reservedCoupon.couponCode) {
+                return res.status(409).json({
+                    message: reservedCoupon.reason || "Coupon is no longer available",
+                });
+            }
+
+            reservedCouponId = reservedCoupon.appliedCoupon?._id || null;
+            finalDiscountAmount = reservedCoupon.discountAmount;
+            finalCouponCode = reservedCoupon.couponCode;
+            finalAppliedCoupon = reservedCoupon.appliedCoupon;
         }
 
-        const order = await createOrderDocument({
-            userId,
-            adminId: ownerAdminId,
-            orderProducts,
-            totalAmount: Math.max(totalAmount - discountAmount, 0),
-            subtotalAmount: totalAmount,
-            discountAmount,
-            couponCode: appliedCouponCode,
-            shippingAddress: normalizedShipping.shippingAddress,
-            shippingDetails: normalizedShipping.shippingDetails,
-            paymentMethod: normalizedPaymentMethod,
-            paymentStatus: normalizedPaymentMethod === "cod" ? "pending" : "paid",
-        });
-        if (appliedCoupon?._id) {
-            await incrementCouponUsage(appliedCoupon._id);
+        let order;
+        try {
+            order = await createOrderDocument({
+                userId,
+                adminId: ownerAdminId,
+                orderProducts,
+                totalAmount: Math.max(totalAmount - finalDiscountAmount, 0),
+                subtotalAmount: totalAmount,
+                discountAmount: finalDiscountAmount,
+                couponCode: finalCouponCode,
+                shippingAddress: normalizedShipping.shippingAddress,
+                shippingDetails: normalizedShipping.shippingDetails,
+                paymentMethod: normalizedPaymentMethod,
+                paymentStatus: normalizedPaymentMethod === "cod" ? "pending" : "paid",
+                fulfillmentGroups,
+            });
+            order.supplierFulfillment.channel = await getFulfillmentChannelForProductIds(
+                orderProducts.map((item) => item.product)
+            );
+            await order.save();
+        } catch (error) {
+            if (reservedCouponId) {
+                await releaseCouponUsage(reservedCouponId);
+            }
+            throw error;
         }
 
         if (user) {
@@ -294,9 +460,9 @@ export const createOrder = async (req, res) => {
             order,
             pricing: {
                 subtotalAmount: totalAmount,
-                discountAmount,
+                discountAmount: finalDiscountAmount,
                 totalAmount: order.totalAmount,
-                coupon: appliedCoupon,
+                coupon: finalAppliedCoupon,
             },
         });
     } catch (error) {
@@ -389,7 +555,7 @@ export const verifyRazorpayPaymentAndCreateOrder = async (req, res) => {
         }
 
         const incomingItems = products ?? items;
-        const { orderProducts, totalAmount, ownerAdminId } =
+        const { orderProducts, totalAmount, ownerAdminId, fulfillmentGroups } =
             await validateAndBuildOrderItems(incomingItems);
         const { discountAmount, couponCode: appliedCouponCode, appliedCoupon, reason } =
             await calculateCouponDiscount({
@@ -415,24 +581,58 @@ export const verifyRazorpayPaymentAndCreateOrder = async (req, res) => {
             return res.status(400).json({ message: "Payment signature verification failed" });
         }
 
-        const order = await createOrderDocument({
-            userId,
-            adminId: ownerAdminId,
-            orderProducts,
-            totalAmount: Math.max(totalAmount - discountAmount, 0),
-            subtotalAmount: totalAmount,
-            discountAmount,
-            couponCode: appliedCouponCode,
-            shippingAddress: normalizedShipping.shippingAddress,
-            shippingDetails: normalizedShipping.shippingDetails,
-            paymentMethod: "online",
-            paymentStatus: "paid",
-            paymentId: razorpayPaymentId,
-            paymentGatewayOrderId: razorpayOrderId,
-            paymentSignature: razorpaySignature,
-        });
-        if (appliedCoupon?._id) {
-            await incrementCouponUsage(appliedCoupon._id);
+        let finalDiscountAmount = discountAmount;
+        let finalCouponCode = appliedCouponCode;
+        let finalAppliedCoupon = appliedCoupon;
+        let reservedCouponId = null;
+
+        if (appliedCouponCode) {
+            const reservedCoupon = await reserveCouponUsage({
+                adminId: ownerAdminId,
+                subtotalAmount: totalAmount,
+                couponCode: appliedCouponCode,
+            });
+
+            if (!reservedCoupon.couponCode) {
+                return res.status(409).json({
+                    message: reservedCoupon.reason || "Coupon is no longer available",
+                });
+            }
+
+            reservedCouponId = reservedCoupon.appliedCoupon?._id || null;
+            finalDiscountAmount = reservedCoupon.discountAmount;
+            finalCouponCode = reservedCoupon.couponCode;
+            finalAppliedCoupon = reservedCoupon.appliedCoupon;
+        }
+
+        let order;
+        try {
+            order = await createOrderDocument({
+                userId,
+                adminId: ownerAdminId,
+                orderProducts,
+                totalAmount: Math.max(totalAmount - finalDiscountAmount, 0),
+                subtotalAmount: totalAmount,
+                discountAmount: finalDiscountAmount,
+                couponCode: finalCouponCode,
+                shippingAddress: normalizedShipping.shippingAddress,
+                shippingDetails: normalizedShipping.shippingDetails,
+                paymentMethod: "online",
+                paymentStatus: "paid",
+                paymentId: razorpayPaymentId,
+                paymentGatewayOrderId: razorpayOrderId,
+                paymentSignature: razorpaySignature,
+                fulfillmentGroups,
+            });
+            order.supplierFulfillment.channel = await getFulfillmentChannelForProductIds(
+                orderProducts.map((item) => item.product)
+            );
+            await order.save();
+        } catch (error) {
+            if (reservedCouponId) {
+                await releaseCouponUsage(reservedCouponId);
+            }
+            throw error;
         }
 
         if (user) {
@@ -446,9 +646,9 @@ export const verifyRazorpayPaymentAndCreateOrder = async (req, res) => {
             order,
             pricing: {
                 subtotalAmount: totalAmount,
-                discountAmount,
+                discountAmount: finalDiscountAmount,
                 totalAmount: order.totalAmount,
-                coupon: appliedCoupon,
+                coupon: finalAppliedCoupon,
             },
         });
     } catch (error) {
@@ -500,7 +700,14 @@ export const getUserOrders = async (req, res) => {
         const userId = req.user.id;
 
         const orders = await Order.find({ user: userId })
-            .populate("items.product")
+            .populate({
+                path: "items.product",
+                populate: {
+                    path: "supplier",
+                    select: "name companyName email phone whatsappNumber website fulfillmentLeadTimeDays",
+                },
+            })
+            .populate("fulfillmentGroups.supplier", "name companyName email phone website fulfillmentLeadTimeDays")
             .sort({ createdAt: -1 });
 
         res.json({ orders });
@@ -516,7 +723,14 @@ export const getAllOrders = async (req, res) => {
             status: { $ne: "delivered" },
         })
             .populate("user", "name email phone")
-            .populate("items.product")
+            .populate({
+                path: "items.product",
+                populate: {
+                    path: "supplier",
+                    select: "name companyName email phone whatsappNumber website fulfillmentLeadTimeDays",
+                },
+            })
+            .populate("fulfillmentGroups.supplier", "name companyName email phone website fulfillmentLeadTimeDays")
             .sort({ createdAt: -1 });
 
         res.json({ orders });
@@ -529,7 +743,14 @@ export const getCompletedOrders = async (req, res) => {
     try {
         const orders = await Order.find({ admin: req.admin._id, status: "delivered" })
             .populate("user", "name email phone")
-            .populate("items.product")
+            .populate({
+                path: "items.product",
+                populate: {
+                    path: "supplier",
+                    select: "name companyName email phone whatsappNumber website fulfillmentLeadTimeDays",
+                },
+            })
+            .populate("fulfillmentGroups.supplier", "name companyName email phone website fulfillmentLeadTimeDays")
             .sort({ createdAt: -1 });
 
         res.json({ orders });
@@ -607,6 +828,16 @@ export const updateOrderStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: "Order not found" });
         }
 
+        const fulfillmentChannel = await getFulfillmentChannelForProductIds(
+            (order.items || []).map((item) => item.product?._id || item.product)
+        );
+        if (fulfillmentChannel === "supplier" && ["shipped", "delivered"].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Use supplier fulfillment actions for shipped or delivered updates on supplier orders",
+            });
+        }
+
         if (order.status === status) {
             return res.json({ success: true, message: "Order status unchanged", order });
         }
@@ -649,11 +880,24 @@ export const createShipmentForOrder = async (req, res) => {
         const { id } = req.params;
         const settings = await Settings.getForAdmin(req.admin._id);
         const order = await Order.findOne({ _id: id, admin: req.admin._id })
-            .populate("items.product")
+            .populate({
+                path: "items.product",
+                populate: {
+                    path: "supplier",
+                    select: "name companyName email phone whatsappNumber website fulfillmentLeadTimeDays",
+                },
+            })
             .populate("user", "name email phone");
 
         if (!order) {
             return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        if (orderSupportsSupplierFulfillment(order)) {
+            return res.status(400).json({
+                success: false,
+                message: "This order is supplier-fulfilled. Use manual or automated supplier fulfillment instead.",
+            });
         }
 
         if (order.status === "cancelled" || order.status === "delivered") {
@@ -670,14 +914,29 @@ export const createShipmentForOrder = async (req, res) => {
             });
         }
 
-        const shipment = await createShiprocketShipment({ order, settings });
-        order.shipment = shipment;
+        let deductedStockForShipment = false;
 
-        if (order.status === "pending" || order.status === "processing") {
-            order.status = "shipped";
+        try {
+            if (!order.stockDeducted) {
+                await ensureStockDeducted(order);
+                deductedStockForShipment = true;
+            }
+
+            const shipment = await createShiprocketShipment({ order, settings });
+            order.shipment = shipment;
+
+            if (order.status === "pending" || order.status === "processing") {
+                order.status = "shipped";
+            }
+
+            await order.save();
+        } catch (error) {
+            if (deductedStockForShipment) {
+                await restoreStockForOrder(order);
+                order.stockDeducted = false;
+            }
+            throw error;
         }
-
-        await order.save();
 
         res.json({
             success: true,
@@ -697,6 +956,13 @@ export const syncOrderShipmentTracking = async (req, res) => {
 
         if (!order) {
             return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        if (order.supplierFulfillment?.channel === "supplier") {
+            return res.status(400).json({
+                success: false,
+                message: "This order is supplier-fulfilled. Update supplier fulfillment status instead.",
+            });
         }
 
         if (!order.shipment?.awbCode) {
@@ -721,17 +987,36 @@ export const syncOrderShipmentTracking = async (req, res) => {
 
         const previousStatus = order.status;
         const normalizedTrackingStatus = String(tracking.status || "").toLowerCase();
+        let deductedStockFromTracking = false;
         if (normalizedTrackingStatus.includes("deliver")) {
+            if (!order.stockDeducted) {
+                await decrementStockForOrder(order);
+                order.stockDeducted = true;
+                deductedStockFromTracking = true;
+            }
             order.status = "delivered";
         } else if (
             (normalizedTrackingStatus.includes("ship") ||
                 normalizedTrackingStatus.includes("transit")) &&
             (order.status === "pending" || order.status === "processing")
         ) {
+            if (!order.stockDeducted) {
+                await decrementStockForOrder(order);
+                order.stockDeducted = true;
+                deductedStockFromTracking = true;
+            }
             order.status = "shipped";
         }
 
-        await order.save();
+        try {
+            await order.save();
+        } catch (error) {
+            if (deductedStockFromTracking) {
+                await restoreStockForOrder(order);
+                order.stockDeducted = false;
+            }
+            throw error;
+        }
 
         if (previousStatus !== "delivered" && order.status === "delivered") {
             sendDeliveredNotifications({ order, settings });
@@ -744,5 +1029,497 @@ export const syncOrderShipmentTracking = async (req, res) => {
         });
     } catch (error) {
         res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+const getSupplierFulfillmentOrder = async ({ id, adminId }) =>
+    Order.findOne({ _id: id, admin: adminId })
+        .populate({
+            path: "items.product",
+            populate: {
+                path: "supplier",
+                select: "name companyName email phone whatsappNumber website fulfillmentLeadTimeDays apiIntegration pickupContactName pickupPhone pickupAddressLine1 pickupAddressLine2 pickupCity pickupState pickupPincode pickupCountry pickupLocationCode address",
+            },
+        })
+        .populate("fulfillmentGroups.supplier", "name companyName email phone whatsappNumber website fulfillmentLeadTimeDays pickupContactName pickupPhone pickupAddressLine1 pickupAddressLine2 pickupCity pickupState pickupPincode pickupCountry pickupLocationCode address")
+        .populate("user", "name email phone");
+
+export const createShipmentForFulfillmentGroup = async (req, res) => {
+    try {
+        const { id, groupId } = req.params;
+        const settings = await Settings.getForAdmin(req.admin._id);
+        const order = await getSupplierFulfillmentOrder({ id, adminId: req.admin._id });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        const group = findFulfillmentGroup(order, groupId);
+        if (!group || group.channel !== "admin") {
+            return res.status(404).json({ success: false, message: "Admin fulfillment group not found" });
+        }
+
+        if (group.shipment?.awbCode) {
+            return res.status(400).json({ success: false, message: "Shipment already created for this group" });
+        }
+
+        await ensureStockDeducted(order);
+
+        const items = getOrderItemsForGroup(order, group);
+        const amount = items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0);
+        const shipment = await createShiprocketShipment({
+            order,
+            settings,
+            itemsOverride: items,
+            externalOrderId: `${order.orderId}-${group.groupId}`,
+            amountOverride: amount,
+        });
+
+        group.shipment = shipment;
+        group.status = "shipped";
+        group.shippedAt = new Date();
+        order.status = recomputeOrderStatusFromGroups(order);
+        await order.save();
+
+        return res.json({ success: true, message: "Admin shipment created", order });
+    } catch (error) {
+        return res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+export const createSupplierShipmentForGroup = async (req, res) => {
+    try {
+        const { id, groupId } = req.params;
+        const settings = await Settings.getForAdmin(req.admin._id);
+        const order = await getSupplierFulfillmentOrder({ id, adminId: req.admin._id });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        const group = findFulfillmentGroup(order, groupId);
+        if (!group || group.channel !== "supplier") {
+            return res
+                .status(404)
+                .json({ success: false, message: "Supplier fulfillment group not found" });
+        }
+
+        if (order.status === "cancelled" || order.status === "delivered") {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot create shipment for "${order.status}" order`,
+            });
+        }
+
+        if (group.shipment?.awbCode) {
+            return res.status(400).json({
+                success: false,
+                message: "Shipment already created for this supplier group",
+            });
+        }
+
+        await ensureStockDeducted(order);
+
+        const items = getOrderItemsForGroup(order, group);
+        const supplier = items[0]?.product?.supplier;
+        if (!supplier) {
+            return res.status(400).json({
+                success: false,
+                message: "Supplier details missing for this group",
+            });
+        }
+
+        const pickupOverride = buildSupplierPickupOverride(supplier);
+        const amount = items.reduce(
+            (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
+            0
+        );
+
+        const shipment = await createShiprocketShipment({
+            order,
+            settings,
+            itemsOverride: items,
+            externalOrderId: `${order.orderId}-${group.groupId}`,
+            amountOverride: amount,
+            pickupOverride,
+        });
+
+        group.shipment = shipment;
+        group.status = "shipped";
+        group.shippedAt = new Date();
+        order.status = recomputeOrderStatusFromGroups(order);
+        order.supplierFulfillment = {
+            channel: "supplier",
+            mode: order.supplierFulfillment?.mode || "automated",
+            status: "shipped",
+            requestedAt: order.supplierFulfillment?.requestedAt || new Date(),
+            notifiedAt: order.supplierFulfillment?.notifiedAt || new Date(),
+            whatsappSentAt: order.supplierFulfillment?.whatsappSentAt || null,
+            deliveredAt: order.supplierFulfillment?.deliveredAt || null,
+            note: order.supplierFulfillment?.note || group.note || "",
+        };
+
+        await order.save();
+
+        return res.json({
+            success: true,
+            message: "Supplier shipment created via Shiprocket",
+            order,
+        });
+    } catch (error) {
+        return res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+export const syncShipmentForFulfillmentGroup = async (req, res) => {
+    try {
+        const { id, groupId } = req.params;
+        const settings = await Settings.getForAdmin(req.admin._id);
+        const order = await Order.findOne({ _id: id, admin: req.admin._id });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        const group = findFulfillmentGroup(order, groupId);
+        if (!group || group.channel !== "admin") {
+            return res.status(404).json({ success: false, message: "Admin fulfillment group not found" });
+        }
+
+        if (!group.shipment?.awbCode) {
+            return res.status(400).json({ success: false, message: "Shipment not created for this group" });
+        }
+
+        const tracking = await trackShiprocketShipment({
+            awbCode: group.shipment.awbCode,
+            settings,
+        });
+
+        group.shipment = {
+            ...group.shipment,
+            courierName: tracking.courierName || group.shipment.courierName,
+            trackingUrl: tracking.trackingUrl || group.shipment.trackingUrl,
+            status: tracking.status || group.shipment.status,
+            rawResponse: tracking.rawResponse,
+        };
+
+        const normalizedTrackingStatus = String(tracking.status || "").toLowerCase();
+        if (normalizedTrackingStatus.includes("deliver")) {
+            group.status = "delivered";
+            group.deliveredAt = new Date();
+        } else if (normalizedTrackingStatus.includes("ship") || normalizedTrackingStatus.includes("transit")) {
+            group.status = "shipped";
+            group.shippedAt = group.shippedAt || new Date();
+        }
+
+        const previousStatus = order.status;
+        order.status = recomputeOrderStatusFromGroups(order);
+        await order.save();
+
+        if (previousStatus !== "delivered" && order.status === "delivered") {
+            await sendDeliveredNotifications({ order, settings });
+        }
+
+        return res.json({ success: true, message: "Admin shipment synced", order });
+    } catch (error) {
+        return res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+export const startSupplierFulfillmentForGroup = async (req, res) => {
+    try {
+        const { id, groupId } = req.params;
+        const incomingMode = String(req.body?.mode || "").trim().toLowerCase();
+        const mode =
+            incomingMode === "automated"
+                ? "automated"
+                : incomingMode === "whatsapp"
+                ? "whatsapp"
+                : "manual";
+        const note = String(req.body?.note || "").trim();
+        const settings = await Settings.getForAdmin(req.admin._id);
+        const order = await getSupplierFulfillmentOrder({ id, adminId: req.admin._id });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        const group = findFulfillmentGroup(order, groupId);
+        if (!group || group.channel !== "supplier") {
+            return res.status(404).json({ success: false, message: "Supplier fulfillment group not found" });
+        }
+
+        await ensureStockDeducted(order);
+
+        const items = getOrderItemsForGroup(order, group);
+        const supplier = items[0]?.product?.supplier;
+        if (!supplier) {
+            return res.status(400).json({ success: false, message: "Supplier details missing for this group" });
+        }
+
+        let apiResponse = group.apiResponse || null;
+        if (mode === "automated") {
+            const result = await sendSupplierFulfillmentRequest({
+                order,
+                settings,
+                supplier,
+                items,
+                fulfillmentGroup: group,
+            });
+            apiResponse = result.responseBody;
+        }
+        if (mode === "whatsapp") {
+            await sendSupplierWhatsAppHandoff({
+                order,
+                supplier,
+                items,
+                fulfillmentGroup: group,
+            });
+        }
+
+        group.mode = mode;
+        group.status = "requested";
+        group.requestedAt = new Date();
+        group.notifiedAt =
+            mode === "automated" || mode === "whatsapp"
+                ? new Date()
+                : group.notifiedAt || null;
+        group.whatsappSentAt = mode === "whatsapp" ? new Date() : group.whatsappSentAt || null;
+        group.note = note;
+        group.apiResponse = apiResponse;
+        order.status = recomputeOrderStatusFromGroups(order);
+        await order.save();
+
+        return res.json({
+            success: true,
+            message:
+                mode === "automated"
+                    ? "Supplier API triggered successfully"
+                    : mode === "whatsapp"
+                    ? "Supplier WhatsApp handoff sent successfully"
+                    : "Manual supplier handoff saved",
+            order,
+        });
+    } catch (error) {
+        return res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+export const updateSupplierFulfillmentGroupStatus = async (req, res) => {
+    try {
+        const { id, groupId } = req.params;
+        const nextStatus = String(req.body?.status || "").trim().toLowerCase();
+        const note = String(req.body?.note || "").trim();
+        const trackingNumber = String(req.body?.trackingNumber || "").trim();
+        const trackingUrl = String(req.body?.trackingUrl || "").trim();
+        const settings = await Settings.getForAdmin(req.admin._id);
+        const order = await getSupplierFulfillmentOrder({ id, adminId: req.admin._id });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        const group = findFulfillmentGroup(order, groupId);
+        if (!group || group.channel !== "supplier") {
+            return res.status(404).json({ success: false, message: "Supplier fulfillment group not found" });
+        }
+
+        if (!["shipped", "delivered"].includes(nextStatus)) {
+            return res.status(400).json({ success: false, message: "Status must be shipped or delivered" });
+        }
+
+        group.status = nextStatus;
+        group.note = note || group.note || "";
+        group.trackingNumber = trackingNumber || group.trackingNumber || "";
+        group.trackingUrl = trackingUrl || group.trackingUrl || "";
+        if (nextStatus === "shipped") {
+            group.shippedAt = new Date();
+        }
+        if (nextStatus === "delivered") {
+            group.deliveredAt = new Date();
+        }
+
+        const previousStatus = order.status;
+        order.status = recomputeOrderStatusFromGroups(order);
+        await order.save();
+
+        if (previousStatus !== "delivered" && order.status === "delivered") {
+            await sendDeliveredNotifications({ order, settings });
+        }
+
+        return res.json({ success: true, message: `Supplier group marked ${nextStatus}`, order });
+    } catch (error) {
+        return res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+export const startSupplierFulfillment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const incomingMode = String(req.body?.mode || "").trim().toLowerCase();
+        const mode =
+            incomingMode === "automated"
+                ? "automated"
+                : incomingMode === "whatsapp"
+                ? "whatsapp"
+                : "manual";
+        const note = String(req.body?.note || "").trim();
+        const settings = await Settings.getForAdmin(req.admin._id);
+        const order = await getSupplierFulfillmentOrder({ id, adminId: req.admin._id });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        if (!orderSupportsSupplierFulfillment(order)) {
+            return res.status(400).json({
+                success: false,
+                message: "This order contains admin-fulfilled items, so admin shipping should be used.",
+            });
+        }
+
+        if (order.status === "cancelled" || order.status === "delivered") {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot start supplier fulfillment for "${order.status}" order`,
+            });
+        }
+
+        await ensureStockDeducted(order);
+
+        const group = (order.fulfillmentGroups || []).find((entry) => entry.channel === "supplier");
+        const items = group ? getOrderItemsForGroup(order, group) : [];
+        const supplier = items[0]?.product?.supplier;
+
+        if (!group || !supplier) {
+            return res.status(400).json({
+                success: false,
+                message: "Supplier fulfillment group not found for this order",
+            });
+        }
+
+        if (mode === "automated") {
+            const result = await sendSupplierFulfillmentRequest({
+                order,
+                settings,
+                supplier,
+                items,
+                fulfillmentGroup: group,
+            });
+            group.apiResponse = result.responseBody;
+        }
+
+        if (mode === "whatsapp") {
+            await sendSupplierWhatsAppHandoff({
+                order,
+                supplier,
+                items,
+                fulfillmentGroup: group,
+            });
+        }
+
+        order.supplierFulfillment = {
+            channel: "supplier",
+            mode,
+            status: "requested",
+            requestedAt: new Date(),
+            notifiedAt:
+                mode === "automated" || mode === "whatsapp"
+                    ? new Date()
+                    : order.supplierFulfillment?.notifiedAt || null,
+            whatsappSentAt:
+                mode === "whatsapp"
+                    ? new Date()
+                    : order.supplierFulfillment?.whatsappSentAt || null,
+            deliveredAt: null,
+            note,
+        };
+
+        group.mode = mode;
+        group.status = "requested";
+        group.requestedAt = new Date();
+        group.notifiedAt =
+            mode === "automated" || mode === "whatsapp" ? new Date() : group.notifiedAt || null;
+        group.whatsappSentAt = mode === "whatsapp" ? new Date() : group.whatsappSentAt || null;
+        group.note = note;
+
+        if (order.status === "pending") {
+            order.status = "processing";
+        }
+
+        await order.save();
+
+        return res.json({
+            success: true,
+            message:
+                mode === "automated"
+                    ? "Supplier API triggered successfully"
+                    : mode === "whatsapp"
+                    ? "Supplier WhatsApp handoff sent successfully"
+                    : "Supplier fulfillment marked as manual",
+            order,
+        });
+    } catch (error) {
+        return res.status(400).json({ success: false, message: error.message });
+    }
+};
+
+export const updateSupplierFulfillmentStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const nextStatus = String(req.body?.status || "").trim().toLowerCase();
+        const note = String(req.body?.note || "").trim();
+        const settings = await Settings.getForAdmin(req.admin._id);
+        const order = await getSupplierFulfillmentOrder({ id, adminId: req.admin._id });
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+
+        if (!orderSupportsSupplierFulfillment(order)) {
+            return res.status(400).json({
+                success: false,
+                message: "This order is not configured for supplier fulfillment",
+            });
+        }
+
+        if (order.supplierFulfillment?.status === "not_started") {
+            return res.status(400).json({
+                success: false,
+                message: "Start supplier fulfillment first",
+            });
+        }
+
+        if (!["shipped", "delivered"].includes(nextStatus)) {
+            return res.status(400).json({
+                success: false,
+                message: "Supplier fulfillment status must be shipped or delivered",
+            });
+        }
+
+        await ensureStockDeducted(order);
+
+        order.supplierFulfillment.status = nextStatus;
+        order.supplierFulfillment.note = note || order.supplierFulfillment.note || "";
+
+        if (nextStatus === "shipped") {
+            order.status = "shipped";
+        }
+
+        if (nextStatus === "delivered") {
+            order.status = "delivered";
+            order.supplierFulfillment.deliveredAt = new Date();
+            await sendDeliveredNotifications({ order, settings });
+        }
+
+        await order.save();
+
+        return res.json({
+            success: true,
+            message: `Supplier fulfillment marked as ${nextStatus}`,
+            order,
+        });
+    } catch (error) {
+        return res.status(400).json({ success: false, message: error.message });
     }
 };

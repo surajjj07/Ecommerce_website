@@ -11,7 +11,8 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "test": "\"node server.js\""
+    "start": "node server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

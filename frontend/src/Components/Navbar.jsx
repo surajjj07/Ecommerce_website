@@ -13,7 +13,6 @@ import { useCategories } from "../Context/CategoryContext";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 const Navbar = () => {
-    const [desktopOpen, setDesktopOpen] = useState(false);
     const [mobileOpen, setMobileOpen] = useState(false);
     const [mobileCategoryOpen, setMobileCategoryOpen] = useState(false);
     const [scrolled, setScrolled] = useState(false);
@@ -36,7 +35,9 @@ const Navbar = () => {
 
     useEffect(() => {
         const params = new URLSearchParams(location.search);
-        setSearch(params.get("search") || "");
+        const nextSearch = params.get("search") || "";
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- sync input with URL query safely
+        setSearch((prev) => (prev === nextSearch ? prev : nextSearch));
     }, [location.search]);
 
     const cartCount = useMemo(
@@ -61,7 +62,6 @@ const Navbar = () => {
 
     const goToCategory = (category) => {
         navigate(`/shop?category=${encodeURIComponent(category)}`);
-        setDesktopOpen(false);
         setMobileOpen(false);
     };
 

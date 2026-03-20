@@ -1,10 +1,12 @@
 import { useContext, useMemo, useState } from "react";
-import { Camera, ShieldCheck, UserCircle2 } from "lucide-react";
+import { Camera, LogOut, UserCircle2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import AuthContext from "../context/CreateAuthContext";
 import { adminApi } from "../services/api";
 import { useToast } from "../context/ToastContext";
 
 export default function Profile() {
+  const navigate = useNavigate();
   const { admin, setAdmin } = useContext(AuthContext);
   const { showToast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -13,9 +15,6 @@ export default function Profile() {
   const [form, setForm] = useState({
     name: admin?.name || "",
     email: admin?.email || "",
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
   });
 
   const initials = useMemo(() => {
@@ -33,19 +32,10 @@ export default function Profile() {
     setSaving(true);
 
     try {
-      if (form.newPassword && form.newPassword !== form.confirmPassword) {
-        throw new Error("New password and confirm password do not match");
-      }
-
       const payload = {
         name: form.name.trim(),
         email: form.email.trim().toLowerCase(),
       };
-
-      if (form.newPassword) {
-        payload.currentPassword = form.currentPassword;
-        payload.newPassword = form.newPassword;
-      }
 
       const res = await adminApi.updateProfile(payload);
       if (!res?.success) {
@@ -53,12 +43,6 @@ export default function Profile() {
       }
 
       setAdmin(res.admin);
-      setForm((prev) => ({
-        ...prev,
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      }));
       showToast("Profile updated successfully", "success");
     } catch (err) {
       showToast(err.message || "Failed to update profile", "error");
@@ -91,6 +75,17 @@ export default function Profile() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await adminApi.logout();
+    } catch {
+      // Clear local auth state even if request fails.
+    } finally {
+      setAdmin(null);
+      navigate("/login", { replace: true });
+    }
+  };
+
   return (
     <div className="space-y-6 p-4 lg:p-6">
       <section className="relative overflow-hidden rounded-3xl border bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8 text-white shadow-sm">
@@ -106,13 +101,23 @@ export default function Profile() {
               Profile Settings
             </h1>
             <p className="max-w-2xl text-sm text-slate-200/85 sm:text-base">
-              Update your account details, profile picture, and password.
+              Update your account details, profile picture, and session access.
             </p>
           </div>
-          <div className="rounded-2xl bg-white/10 px-5 py-4 text-sm shadow-inner">
-            <p className="text-slate-200/80">Current Admin</p>
-            <p className="mt-1 font-semibold text-white">{admin?.name || "Admin"}</p>
-            <p className="text-slate-300">{admin?.email || "-"}</p>
+          <div className="flex flex-col gap-3 sm:items-end">
+            <div className="rounded-2xl bg-white/10 px-5 py-4 text-sm shadow-inner">
+              <p className="text-slate-200/80">Current Admin</p>
+              <p className="mt-1 font-semibold text-white">{admin?.name || "Admin"}</p>
+              <p className="text-slate-300">{admin?.email || "-"}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/15"
+            >
+              <LogOut size={16} />
+              Logout
+            </button>
           </div>
         </div>
       </section>
@@ -164,7 +169,7 @@ export default function Profile() {
                 Account Details
               </h2>
               <p className="text-sm text-slate-500">
-                Edit your public admin details and credentials.
+                Edit your public admin details.
               </p>
             </div>
           </div>
@@ -185,36 +190,6 @@ export default function Profile() {
               onChange={handleChange}
               required
             />
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <ShieldCheck size={16} />
-              Password Change (Optional)
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <Input
-                label="Current Password"
-                name="currentPassword"
-                type="password"
-                value={form.currentPassword}
-                onChange={handleChange}
-              />
-              <Input
-                label="New Password"
-                name="newPassword"
-                type="password"
-                value={form.newPassword}
-                onChange={handleChange}
-              />
-              <Input
-                label="Confirm Password"
-                name="confirmPassword"
-                type="password"
-                value={form.confirmPassword}
-                onChange={handleChange}
-              />
-            </div>
           </div>
 
           <div className="flex justify-end">

@@ -47,6 +47,15 @@ export const adminApi = {
     signup: (data) =>
         api.post("/admin/signup", data),
 
+    requestPasswordResetOtp: (data) =>
+        api.post("/admin/forgot-password/request-otp", data),
+
+    verifyPasswordResetOtp: (data) =>
+        api.post("/admin/forgot-password/verify-otp", data),
+
+    resetPasswordWithOtp: (data) =>
+        api.post("/admin/forgot-password/reset", data),
+
     logout: () =>
         api.post("/admin/logout"),
 

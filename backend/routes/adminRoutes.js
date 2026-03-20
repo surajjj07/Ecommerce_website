@@ -1,5 +1,15 @@
 import express from 'express';
-import { signup, login, logout, setProfilePic, getProfile, updateProfile } from '../controllers/AdminController.js';
+import {
+    signup,
+    login,
+    logout,
+    setProfilePic,
+    getProfile,
+    updateProfile,
+    requestPasswordResetOtp,
+    verifyPasswordResetOtp,
+    resetPasswordWithOtp
+} from '../controllers/AdminController.js';
 import upload from '../config/multer.js';
 import { authenticateAdmin } from '../middlewares/adminAuth.js';
 import { getAdminDashboard } from '../controllers/ExpenseController.js';
@@ -8,6 +18,9 @@ const router = express.Router();
 
 router.post('/signup', signup);
 router.post('/login', login);
+router.post('/forgot-password/request-otp', requestPasswordResetOtp);
+router.post('/forgot-password/verify-otp', verifyPasswordResetOtp);
+router.post('/forgot-password/reset', resetPasswordWithOtp);
 router.post('/logout', authenticateAdmin, logout);
 router.post('/set-profile-pic', authenticateAdmin, upload.single('profilePic'), setProfilePic);
 router.get('/profile', authenticateAdmin, getProfile);

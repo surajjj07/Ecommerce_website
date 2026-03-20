@@ -1,7 +1,25 @@
 import User from '../models/User.js';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { generateToken } from '../config/token.js';
 import cloudinary from '../config/cloudinary.js';
+import { sendEmail } from '../Services/emailService.js';
+
+const buildResetOtpEmail = ({ customerName, otp }) => `
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+        <h2 style="margin-bottom: 8px;">Password Reset OTP</h2>
+        <p>Hello ${customerName || "Customer"},</p>
+        <p>Use the OTP below to verify your password reset request.</p>
+        <div style="margin: 20px 0; padding: 14px 18px; display: inline-block; border-radius: 12px; background: #0f172a; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: 6px;">
+            ${otp}
+        </div>
+        <p>This OTP will expire in 10 minutes.</p>
+        <p>If you did not request this, you can safely ignore this email.</p>
+    </div>
+`;
+
+const createHash = (value) =>
+    crypto.createHash('sha256').update(String(value)).digest('hex');
 
 export const signup = async (req, res) => {
     try {
@@ -122,6 +140,137 @@ export const setProfilePic = async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+};
+
+export const requestPasswordResetOtp = async (req, res) => {
+    try {
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        if (!email) {
+            return res.status(400).json({ success: false, message: 'Email is required' });
+        }
+
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Customer account not found' });
+        }
+
+        const otp = String(crypto.randomInt(100000, 999999));
+        user.passwordResetOtpHash = createHash(otp);
+        user.passwordResetOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        user.passwordResetTokenHash = '';
+        user.passwordResetTokenExpiresAt = null;
+        await user.save();
+
+        await sendEmail({
+            to: user.email,
+            subject: 'Customer password reset OTP',
+            html: buildResetOtpEmail({ customerName: user.name, otp }),
+        });
+
+        return res.json({
+            success: true,
+            message: 'OTP sent successfully to your email',
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const verifyPasswordResetOtp = async (req, res) => {
+    try {
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        const otp = String(req.body?.otp || '').trim();
+
+        if (!email || !otp) {
+            return res.status(400).json({ success: false, message: 'Email and OTP are required' });
+        }
+
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Customer account not found' });
+        }
+
+        const isExpired =
+            !user.passwordResetOtpExpiresAt ||
+            new Date(user.passwordResetOtpExpiresAt).getTime() < Date.now();
+
+        if (!user.passwordResetOtpHash || isExpired) {
+            return res.status(400).json({ success: false, message: 'OTP expired. Please request a new one.' });
+        }
+
+        if (createHash(otp) !== user.passwordResetOtpHash) {
+            return res.status(400).json({ success: false, message: 'Invalid OTP' });
+        }
+
+        const resetToken = crypto.randomBytes(24).toString('hex');
+        user.passwordResetTokenHash = createHash(resetToken);
+        user.passwordResetTokenExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        await user.save();
+
+        return res.json({
+            success: true,
+            message: 'OTP verified successfully',
+            resetToken,
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const resetPasswordWithOtp = async (req, res) => {
+    try {
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        const resetToken = String(req.body?.resetToken || '').trim();
+        const newPassword = String(req.body?.newPassword || '');
+
+        if (!email || !resetToken || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email, reset token, and new password are required',
+            });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be at least 6 characters',
+            });
+        }
+
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Customer account not found' });
+        }
+
+        const isExpired =
+            !user.passwordResetTokenExpiresAt ||
+            new Date(user.passwordResetTokenExpiresAt).getTime() < Date.now();
+
+        if (!user.passwordResetTokenHash || isExpired) {
+            return res.status(400).json({
+                success: false,
+                message: 'Reset session expired. Please verify OTP again.',
+            });
+        }
+
+        if (createHash(resetToken) !== user.passwordResetTokenHash) {
+            return res.status(400).json({ success: false, message: 'Invalid reset session' });
+        }
+
+        user.password = await bcrypt.hash(newPassword, 10);
+        user.passwordResetOtpHash = '';
+        user.passwordResetOtpExpiresAt = null;
+        user.passwordResetTokenHash = '';
+        user.passwordResetTokenExpiresAt = null;
+        await user.save();
+
+        return res.json({
+            success: true,
+            message: 'Password reset successful. Please login with your new password.',
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
     }
 };
 

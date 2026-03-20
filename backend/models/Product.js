@@ -42,6 +42,42 @@ const productSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    supplier: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Supplier",
+        default: null,
+        index: true
+    },
+    supplierSku: {
+        type: String,
+        trim: true,
+        uppercase: true,
+        default: ""
+    },
+    costPrice: {
+        type: Number,
+        min: 0,
+        default: 0
+    },
+    supplierLeadTimeDays: {
+        type: Number,
+        min: 0,
+        default: 0
+    },
+    supplierProductId: {
+        type: String,
+        trim: true,
+        default: ""
+    },
+    source: {
+        type: String,
+        enum: ["manual", "supplier_api"],
+        default: "manual"
+    },
+    lastSupplierSyncAt: {
+        type: Date,
+        default: null
+    },
     stock: {
         type: Number,
         required: true,

@@ -38,6 +38,22 @@ const userSchema = new mongoose.Schema({
         country: { type: String, default: "India" },
         email: { type: String, default: "" }
     },
+    passwordResetOtpHash: {
+        type: String,
+        default: ""
+    },
+    passwordResetOtpExpiresAt: {
+        type: Date,
+        default: null
+    },
+    passwordResetTokenHash: {
+        type: String,
+        default: ""
+    },
+    passwordResetTokenExpiresAt: {
+        type: Date,
+        default: null
+    },
 }, {
     timestamps: true
 });

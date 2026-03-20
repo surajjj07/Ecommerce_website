@@ -21,6 +21,86 @@ const orderItemSchema = new mongoose.Schema(
     { _id: false }
 );
 
+const fulfillmentGroupSchema = new mongoose.Schema(
+    {
+        groupId: {
+            type: String,
+            required: true,
+        },
+        channel: {
+            type: String,
+            enum: ["admin", "supplier"],
+            required: true,
+        },
+        supplier: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Supplier",
+            default: null,
+        },
+        productIds: {
+            type: [mongoose.Schema.Types.ObjectId],
+            default: [],
+        },
+        mode: {
+            type: String,
+            enum: ["none", "manual", "automated", "whatsapp"],
+            default: "none",
+        },
+        status: {
+            type: String,
+            enum: ["not_started", "requested", "shipped", "delivered"],
+            default: "not_started",
+        },
+        shipment: {
+            provider: { type: String, default: "" },
+            shipmentId: { type: String, default: "" },
+            awbCode: { type: String, default: "" },
+            courierName: { type: String, default: "" },
+            trackingUrl: { type: String, default: "" },
+            status: { type: String, default: "not_created" },
+            createdAt: { type: Date, default: null },
+            rawResponse: { type: mongoose.Schema.Types.Mixed, default: null },
+        },
+        requestedAt: {
+            type: Date,
+            default: null,
+        },
+        notifiedAt: {
+            type: Date,
+            default: null,
+        },
+        whatsappSentAt: {
+            type: Date,
+            default: null,
+        },
+        shippedAt: {
+            type: Date,
+            default: null,
+        },
+        deliveredAt: {
+            type: Date,
+            default: null,
+        },
+        trackingNumber: {
+            type: String,
+            default: "",
+        },
+        trackingUrl: {
+            type: String,
+            default: "",
+        },
+        note: {
+            type: String,
+            default: "",
+        },
+        apiResponse: {
+            type: mongoose.Schema.Types.Mixed,
+            default: null,
+        },
+    },
+    { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
     {
         orderId: {
@@ -127,6 +207,47 @@ const orderSchema = new mongoose.Schema(
             status: { type: String, default: "not_created" },
             createdAt: { type: Date, default: null },
             rawResponse: { type: mongoose.Schema.Types.Mixed, default: null },
+        },
+        supplierFulfillment: {
+            channel: {
+                type: String,
+                enum: ["admin", "supplier"],
+                default: "admin",
+            },
+            mode: {
+                type: String,
+                enum: ["none", "manual", "automated", "whatsapp"],
+                default: "none",
+            },
+            status: {
+                type: String,
+                enum: ["not_started", "requested", "shipped", "delivered"],
+                default: "not_started",
+            },
+            requestedAt: {
+                type: Date,
+                default: null,
+            },
+            notifiedAt: {
+                type: Date,
+                default: null,
+            },
+            whatsappSentAt: {
+                type: Date,
+                default: null,
+            },
+            deliveredAt: {
+                type: Date,
+                default: null,
+            },
+            note: {
+                type: String,
+                default: "",
+            },
+        },
+        fulfillmentGroups: {
+            type: [fulfillmentGroupSchema],
+            default: [],
         },
         stockDeducted: {
             type: Boolean,

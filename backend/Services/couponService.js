@@ -24,6 +24,48 @@ export const sanitizeCouponForClient = (coupon) => {
     };
 };
 
+const buildDiscountAmount = ({ coupon, subtotalAmount }) => {
+    if (!coupon) return 0;
+
+    if (coupon.type === "percent") {
+        const percentageDiscount = Math.round((subtotalAmount * coupon.value) / 100);
+        return coupon.maxDiscount > 0
+            ? Math.min(percentageDiscount, coupon.maxDiscount)
+            : percentageDiscount;
+    }
+
+    return Math.min(coupon.value, subtotalAmount);
+};
+
+const buildEligibleCouponQuery = ({ adminId, normalizedCode, subtotalAmount, now }) => ({
+    admin: adminId,
+    code: normalizedCode,
+    isActive: true,
+    minOrderAmount: { $lte: subtotalAmount },
+    $and: [
+        {
+            $or: [
+                { startsAt: null },
+                { startsAt: { $exists: false } },
+                { startsAt: { $lte: now } },
+            ],
+        },
+        {
+            $or: [
+                { expiresAt: null },
+                { expiresAt: { $exists: false } },
+                { expiresAt: { $gte: now } },
+            ],
+        },
+        {
+            $or: [
+                { usageLimit: 0 },
+                { $expr: { $lt: ["$usedCount", "$usageLimit"] } },
+            ],
+        },
+    ],
+});
+
 const getCouponIneligibilityReason = ({ coupon, subtotalAmount, now }) => {
     if (!coupon) return "Invalid coupon code";
     if (!coupon.isActive) return "This coupon is currently inactive";
@@ -66,15 +108,7 @@ export const calculateCouponDiscount = async ({ adminId, subtotalAmount, couponC
         };
     }
 
-    let discountAmount = 0;
-    if (coupon.type === "percent") {
-        discountAmount = Math.round((subtotalAmount * coupon.value) / 100);
-        if (coupon.maxDiscount > 0) {
-            discountAmount = Math.min(discountAmount, coupon.maxDiscount);
-        }
-    } else {
-        discountAmount = Math.min(coupon.value, subtotalAmount);
-    }
+    const discountAmount = buildDiscountAmount({ coupon, subtotalAmount });
 
     return {
         couponCode: coupon.code,
@@ -84,7 +118,47 @@ export const calculateCouponDiscount = async ({ adminId, subtotalAmount, couponC
     };
 };
 
-export const incrementCouponUsage = async (couponId) => {
+export const reserveCouponUsage = async ({ adminId, subtotalAmount, couponCode }) => {
+    const normalizedCode = normalizeCouponCode(couponCode);
+    if (!normalizedCode) {
+        return {
+            couponCode: "",
+            discountAmount: 0,
+            appliedCoupon: null,
+            reason: "",
+        };
+    }
+
+    const now = new Date();
+    const coupon = await Coupon.findOneAndUpdate(
+        buildEligibleCouponQuery({
+            adminId,
+            normalizedCode,
+            subtotalAmount,
+            now,
+        }),
+        { $inc: { usedCount: 1 } },
+        { new: true }
+    );
+
+    if (!coupon) {
+        return {
+            couponCode: "",
+            discountAmount: 0,
+            appliedCoupon: null,
+            reason: "This coupon is no longer available. Please try again.",
+        };
+    }
+
+    return {
+        couponCode: coupon.code,
+        discountAmount: buildDiscountAmount({ coupon, subtotalAmount }),
+        appliedCoupon: sanitizeCouponForClient(coupon),
+        reason: "",
+    };
+};
+
+export const releaseCouponUsage = async (couponId) => {
     if (!couponId) return;
-    await Coupon.findByIdAndUpdate(couponId, { $inc: { usedCount: 1 } });
+    await Coupon.findByIdAndUpdate(couponId, { $inc: { usedCount: -1 } });
 };

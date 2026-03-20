@@ -160,11 +160,17 @@ import { api } from "../services/api";
 import { PRODUCT_PLACEHOLDER, resolveImageUrl } from "../utils/image";
 
 const formatPrice = (value) => `INR ${Number(value || 0).toLocaleString("en-IN")}`;
+const getEffectivePrice = (product) =>
+    product.discountPrice > 0 && product.discountPrice < product.price
+        ? product.discountPrice
+        : product.price;
 
 const mapProduct = (product) => ({
     id: product._id,
     name: product.name,
-    price: formatPrice(product.price),
+    price: formatPrice(getEffectivePrice(product)),
+    originalPrice:
+        getEffectivePrice(product) !== product.price ? formatPrice(product.price) : "",
     rating: 4.6,
     stock: product.stock > 0 ? "inStock" : "outOfStock",
     image: resolveImageUrl(product.images?.[0]),
@@ -320,9 +326,16 @@ const Bestselling = () => {
                                             </span>
                                         </div>
 
-                                        <p className="text-lg font-bold text-amber-400">
-                                            {product.price}
-                                        </p>
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-lg font-bold text-amber-400">
+                                                {product.price}
+                                            </p>
+                                            {product.originalPrice ? (
+                                                <p className="text-sm text-slate-500 line-through">
+                                                    {product.originalPrice}
+                                                </p>
+                                            ) : null}
+                                        </div>
                                     </div>
                                 </div>
                             ))}
